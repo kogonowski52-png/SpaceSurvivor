@@ -1,0 +1,760 @@
+class_name StrikeArena
+extends Node2D
+
+signal telemetry(data: Dictionary)
+signal upgrade_requested(cards: Array[Dictionary])
+signal mission_ended(result: Dictionary)
+signal sound_requested(event: String)
+
+const FlightLoadout := preload("res://combat/flight_loadout.gd")
+const EffectLibrary := preload("res://combat/battle_fx.gd")
+const MISSION := preload("res://data/missions/peryhelium.tres")
+const HULL := preload("res://data/hangar/peregrine.tres")
+const PULSE = HULL.primary_weapon
+const ARENA := Rect2(-1240.0, -1540.0, 2480.0, 3080.0)
+const PLAYER_RADIUS := 21.0
+const CRUISE_SPEED := 238.0
+const PROMOTION_REPAIR := 10.0
+const MAX_ENEMIES := 54
+const MAX_SHOTS := 128
+const MAX_ORBS := 96
+const CYAN := Color("#65e9ff")
+const VIOLET := Color("#b995ff")
+const WARM := Color("#ff725c")
+const WHITE_HOT := Color("#e7fcff")
+const SHIP_ART: Array[String] = [
+	"res://assets/art/enemy_scout.png",
+	"res://assets/art/enemy_lancer.png",
+	"res://assets/art/enemy_bastion.png"
+]
+const SHIP_TINTS: Array[Color] = [Color("#ffb164"), Color("#ca97ff"), Color("#fa7367")]
+const SHIP_BOUNDS: Array[float] = [62.0, 71.0, 96.0]
+
+enum EnemyKind { SCOUT, LANCER, BASTION }
+enum ShotKind { PULSE, MISSILE, HOSTILE }
+
+class Enemy:
+	var kind: int
+	var position: Vector2
+	var heading: float
+	var hp: float
+	var max_hp: float
+	var speed: float
+	var radius: float
+	var action_timer: float
+	var phase: float
+	var hit_flash: float
+	var xp: int
+	var contact_damage: float
+
+class Shot:
+	var kind: int
+	var position: Vector2
+	var velocity: Vector2
+	var damage: float
+	var life: float
+	var target: Enemy
+
+class Orb:
+	var position: Vector2
+	var velocity: Vector2
+	var value: int
+	var phase: float
+
+var _loadout := FlightLoadout.new()
+var _fx := EffectLibrary.new()
+var _rng := RandomNumberGenerator.new()
+var _duration := float(MISSION.duration_seconds)
+var _enemies: Array[Enemy] = []
+var _shots: Array[Shot] = []
+var _xp_orbs: Array[Orb] = []
+var _enemy_pool: Array[Enemy] = []
+var _shot_pool: Array[Shot] = []
+var _orb_pool: Array[Orb] = []
+var _pending_cards: Array[Dictionary] = []
+var _textures: Array[Texture2D] = []
+var _player_texture: Texture2D
+var _nebula_texture: Texture2D
+var _distant_stars := PackedVector2Array()
+var _near_stars := PackedVector2Array()
+var _camera := Vector2.ZERO
+var _player_position := Vector2.ZERO
+var _player_velocity := Vector2.ZERO
+var _player_heading := -PI * 0.5
+var _steer_offset := Vector2.ZERO
+var _pointer_position := Vector2.ZERO
+var _touch_index := -1
+var _mouse_drag := false
+var _hp := 100.0
+var _max_hp := 100.0
+var _xp := 0
+var _xp_goal := 12
+var _level := 1
+var _kills := 0
+var _mission_time := 0.0
+var _spawn_timer := 0.7
+var _pulse_timer := 0.0
+var _missile_timer := 0.0
+var _nova_timer := 0.0
+var _engine_timer := 0.0
+var _report_timer := 0.0
+var _hit_cooldown := 0.0
+var _firing_flash := 0.0
+var _suspended := false
+var _ended := false
+
+
+func _ready() -> void:
+	_rng.randomize()
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	get_viewport().size_changed.connect(queue_redraw)
+	_player_texture = HULL.sprite
+	_nebula_texture = _texture("res://assets/art/arena_nebula.jpg")
+	for path in SHIP_ART:
+		_textures.append(_texture(path))
+	_seed_sky()
+	_spawn_enemy(EnemyKind.SCOUT, Vector2(-230.0, -250.0))
+	_spawn_enemy(EnemyKind.SCOUT, Vector2(235.0, 239.0))
+	_publish_telemetry()
+
+
+func set_suspended(suspended: bool) -> void:
+	_suspended = suspended
+	_clear_pointer()
+
+
+func apply_upgrade(id: String) -> void:
+	if _ended:
+		return
+	for card in _pending_cards:
+		if id != String(card["id"]):
+			continue
+		_loadout.increment(id)
+		if id == "repair":
+			_max_hp += 15.0
+			_hp += 30.0
+		_hp = minf(_max_hp, _hp + PROMOTION_REPAIR)
+		_pending_cards.clear()
+		_fx.ring(_player_position, CYAN, 97.0, 0.55)
+		_fx.burst(_player_position, CYAN, 18, 170.0)
+		sound_requested.emit("upgrade")
+		_publish_telemetry()
+		return
+
+
+func _texture(path: String) -> Texture2D:
+	if ResourceLoader.exists(path, "Texture2D"):
+		return load(path) as Texture2D
+	push_warning("Brak zasobu areny: " + path)
+	return null
+
+
+func _clear_pointer() -> void:
+	_touch_index = -1
+	_mouse_drag = false
+	_steer_offset = Vector2.ZERO
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_WINDOW_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED:
+		_clear_pointer()
+
+
+func _input(event: InputEvent) -> void:
+	# Release is observed even if the pointer ends over a HUD button.
+	if event is InputEventScreenTouch and not event.pressed and event.index == _touch_index:
+		_touch_index = -1
+		_steer_offset = Vector2.ZERO
+	if event is InputEventMouseButton and event.device != InputEvent.DEVICE_ID_EMULATION and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_mouse_drag = false
+		_steer_offset = Vector2.ZERO
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if _paused():
+		return
+	if event is InputEventScreenTouch and event.pressed and _touch_index == -1:
+		_touch_index = event.index
+		_pointer_position = event.position
+		_steer_offset = Vector2.ZERO
+		get_viewport().set_input_as_handled()
+	elif event is InputEventScreenDrag and event.index == _touch_index:
+		_pointer_position = event.position
+		_steer_offset = (_steer_offset + event.relative).limit_length(52.0)
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton and event.device != InputEvent.DEVICE_ID_EMULATION and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_mouse_drag = true
+		_pointer_position = event.position
+		_steer_offset = Vector2.ZERO
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion and event.device != InputEvent.DEVICE_ID_EMULATION and _mouse_drag:
+		_pointer_position = event.position
+		_steer_offset = (_steer_offset + event.relative).limit_length(52.0)
+		get_viewport().set_input_as_handled()
+
+
+func _paused() -> bool:
+	return _ended or _suspended or not _pending_cards.is_empty()
+
+
+func _physics_process(delta: float) -> void:
+	if _paused():
+		return
+	_mission_time = minf(_duration, _mission_time + delta)
+	if _mission_time >= _duration - 0.0001:
+		_mission_time = _duration
+		_finish(true)
+		return
+	_step_player(delta)
+	_step_spawns(delta)
+	_step_enemies(delta)
+	if _ended:
+		queue_redraw()
+		return
+	_step_weapons(delta)
+	_step_shots(delta)
+	if _ended:
+		queue_redraw()
+		return
+	_step_orbs(delta)
+	_fx.step(delta)
+	_report_timer -= delta
+	if _report_timer <= 0.0:
+		_report_timer = 0.12
+		_publish_telemetry()
+	if _xp >= _xp_goal:
+		_offer_level()
+	queue_redraw()
+
+
+func _step_player(delta: float) -> void:
+	var keyboard := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var max_speed := CRUISE_SPEED * _loadout.speed_multiplier()
+	var direction := keyboard
+	if _touch_index != -1 or _mouse_drag:
+		var pull := _steer_offset.length()
+		direction = _steer_offset.normalized() * smoothstep(4.0, 52.0, pull)
+	_player_velocity = _player_velocity.move_toward(direction * max_speed, delta * 2100.0)
+	_player_position = _clamp_to_arena(_player_position + _player_velocity * delta, PLAYER_RADIUS)
+	var target := _closest_enemy(450.0)
+	if target != null:
+		_player_heading = lerp_angle(_player_heading, (target.position - _player_position).angle(), 1.0 - exp(-delta * 13.0))
+	elif _player_velocity.length_squared() > 64.0:
+		_player_heading = lerp_angle(_player_heading, _player_velocity.angle(), 1.0 - exp(-delta * 8.0))
+	_camera = _camera.lerp(_player_position, 1.0 - exp(-delta * 9.0))
+	_hit_cooldown = maxf(0.0, _hit_cooldown - delta)
+	_firing_flash = maxf(0.0, _firing_flash - delta)
+	_engine_timer -= delta
+	if _engine_timer <= 0.0:
+		_engine_timer = 0.052
+		var backward := -Vector2.from_angle(_player_heading)
+		var origin := _player_position + backward * 33.0
+		_fx.burst(origin, Color("#57aaff"), 2, 68.0 + _player_velocity.length() * 0.34, backward)
+
+
+func _clamp_to_arena(position: Vector2, margin: float) -> Vector2:
+	var inset := Vector2.ONE * margin
+	return position.clamp(ARENA.position + inset, ARENA.end - inset)
+
+
+func _step_spawns(delta: float) -> void:
+	_spawn_timer -= delta
+	if _spawn_timer > 0.0:
+		return
+	var pressure := clampf(_mission_time / _duration, 0.0, 1.0)
+	_spawn_timer = lerpf(1.12, 0.56, pressure)
+	if _enemies.size() >= MAX_ENEMIES:
+		return
+	_spawn_at_edge(_next_enemy_kind())
+	if _mission_time > 116.0 and _rng.randf() < pressure * 0.45 and _enemies.size() < MAX_ENEMIES:
+		_spawn_at_edge(_next_enemy_kind())
+
+
+func _next_enemy_kind() -> int:
+	var roll := _rng.randf()
+	if _mission_time > 62.0 and roll < 0.25:
+		return EnemyKind.BASTION
+	if _mission_time > 24.0 and roll > 0.66:
+		return EnemyKind.LANCER
+	return EnemyKind.SCOUT
+
+
+func _spawn_at_edge(kind: int) -> void:
+	var viewport_half := get_viewport_rect().size * 0.5
+	var ray := Vector2.from_angle(_rng.randf_range(0.0, TAU))
+	var extent := minf(viewport_half.x / maxf(0.01, absf(ray.x)), viewport_half.y / maxf(0.01, absf(ray.y)))
+	var position := _clamp_to_arena(_camera + ray * (extent + 47.0), 28.0)
+	# When the player reaches the sector wall, fold pressure in from open space.
+	if position.distance_squared_to(_player_position) < 190.0 * 190.0:
+		position = _clamp_to_arena(_camera - ray * (extent + 47.0), 28.0)
+	_spawn_enemy(kind, position)
+	_fx.ring(position, SHIP_TINTS[kind], 42.0, 0.6)
+
+
+func _spawn_enemy(kind: int, position: Vector2) -> void:
+	var enemy: Enemy = Enemy.new() if _enemy_pool.is_empty() else _enemy_pool.pop_back()
+	enemy.kind = kind
+	enemy.position = position
+	enemy.heading = (_player_position - position).angle()
+	enemy.phase = _rng.randf_range(0.0, TAU)
+	enemy.action_timer = _rng.randf_range(0.65, 1.65)
+	enemy.hit_flash = 0.0
+	match kind:
+		EnemyKind.SCOUT:
+			enemy.radius = 19.0
+			enemy.max_hp = 21.0
+			enemy.speed = 109.0
+			enemy.xp = 4
+			enemy.contact_damage = 12.0
+		EnemyKind.LANCER:
+			enemy.radius = 24.0
+			enemy.max_hp = 42.0
+			enemy.speed = 96.0
+			enemy.xp = 7
+			enemy.contact_damage = 15.0
+		EnemyKind.BASTION:
+			enemy.radius = 34.0
+			enemy.max_hp = 107.0
+			enemy.speed = 63.0
+			enemy.xp = 13
+			enemy.contact_damage = 24.0
+	enemy.max_hp *= 1.0 + _mission_time / _duration * 0.42
+	enemy.hp = enemy.max_hp
+	enemy.speed *= 1.0 + _mission_time / _duration * 0.23
+	_enemies.append(enemy)
+
+
+func _step_enemies(delta: float) -> void:
+	for index in _enemies.size():
+		var enemy := _enemies[index]
+		var toward := _player_position - enemy.position
+		var distance := toward.length()
+		var forward := toward / maxf(1.0, distance)
+		var travel := forward
+		match enemy.kind:
+			EnemyKind.SCOUT:
+				travel += Vector2(-forward.y, forward.x) * sin(_mission_time * 4.5 + enemy.phase) * 0.31
+			EnemyKind.LANCER:
+				travel = _lancer_travel(enemy, forward, distance, delta)
+		travel += _separation(index, enemy)
+		enemy.position = _clamp_to_arena(enemy.position + travel.limit_length(1.34) * enemy.speed * delta, enemy.radius)
+		enemy.heading = lerp_angle(enemy.heading, toward.angle(), 1.0 - exp(-delta * 7.0))
+		enemy.hit_flash = maxf(0.0, enemy.hit_flash - delta)
+		if distance < PLAYER_RADIUS + enemy.radius:
+			_hurt_player(enemy.contact_damage)
+			enemy.position = _clamp_to_arena(enemy.position - forward * delta * 92.0, enemy.radius)
+			if _ended:
+				return
+
+
+func _separation(index: int, enemy: Enemy) -> Vector2:
+	# Compare nearby entries in the bounded active pool so dense waves do not stack.
+	var push := Vector2.ZERO
+	var count := _enemies.size()
+	for step in range(1, mini(8, count)):
+		var neighbor := _enemies[(index + step) % count]
+		var difference := enemy.position - neighbor.position
+		var spacing := enemy.radius + neighbor.radius + 8.0
+		var distance_squared := difference.length_squared()
+		if distance_squared > 0.001 and distance_squared < spacing * spacing:
+			var distance := sqrt(distance_squared)
+			push += difference / distance * (1.0 - distance / spacing)
+	return push.limit_length(0.9)
+
+
+func _lancer_travel(enemy: Enemy, forward: Vector2, distance: float, delta: float) -> Vector2:
+	enemy.action_timer -= delta
+	if distance < 420.0 and enemy.action_timer <= 0.0:
+		var launch := enemy.position + forward * 32.0
+		_fx.burst(launch, WARM, 5, 85.0, forward)
+		_launch_shot(ShotKind.HOSTILE, launch, forward * 284.0, 9.0, 2.2)
+		enemy.action_timer = _rng.randf_range(2.3, 3.15)
+	var advance := clampf((distance - 213.0) / 75.0, -0.62, 1.0)
+	var orbit := sin(enemy.phase) * 0.8 * (1.0 - clampf((distance - 240.0) / 150.0, 0.0, 1.0))
+	return forward * advance + Vector2(-forward.y, forward.x) * orbit
+
+
+func _step_weapons(delta: float) -> void:
+	_pulse_timer -= delta
+	_missile_timer -= delta
+	_nova_timer -= delta
+	if _pulse_timer <= 0.0:
+		var target := _closest_enemy(390.0)
+		if target != null:
+			_fire_pulse(target)
+	var missile_rank := _loadout.rank("missiles")
+	if missile_rank > 0 and _missile_timer <= 0.0:
+		var target := _closest_enemy(480.0)
+		if target != null:
+			var forward := Vector2.from_angle(_player_heading)
+			_launch_shot(ShotKind.MISSILE, _player_position - forward * 18.0, forward * 468.0,
+				29.0 + 12.0 * (missile_rank - 1), 1.8, target)
+			_missile_timer = 2.65 - 0.29 * missile_rank
+			sound_requested.emit("missile")
+	var nova_rank := _loadout.rank("nova")
+	if nova_rank > 0 and _nova_timer <= 0.0:
+		var radius := 152.0 + 17.0 * nova_rank
+		if _closest_enemy(radius) != null:
+			_nova_timer = 4.4
+			_fx.ring(_player_position, VIOLET, radius, 0.54)
+			_area_damage(_player_position, radius, 25.0 + 15.0 * (nova_rank - 1))
+			sound_requested.emit("nova")
+
+
+func _fire_pulse(target: Enemy) -> void:
+	var forward := Vector2.from_angle((target.position - _player_position).angle())
+	var right := Vector2(-forward.y, forward.x)
+	for side: int in [-1, 1]:
+		var launch := _player_position + forward * 18.0 + right * 19.0 * side
+		var velocity := launch.direction_to(target.position) * float(PULSE.projectile_speed)
+		var damage := float(PULSE.damage) + 5.0 * _loadout.rank("pulse_damage")
+		_launch_shot(ShotKind.PULSE, launch, velocity, damage, 0.63)
+	_pulse_timer = float(PULSE.interval_seconds) / pow(1.15, _loadout.rank("pulse_cadence"))
+	_firing_flash = 0.078
+	sound_requested.emit("shot")
+
+
+func _closest_enemy(max_range: float) -> Enemy:
+	var closest: Enemy
+	var range_squared := max_range * max_range
+	for enemy in _enemies:
+		var candidate := _player_position.distance_squared_to(enemy.position)
+		if candidate < range_squared:
+			range_squared = candidate
+			closest = enemy
+	return closest
+
+
+func _launch_shot(kind: int, position: Vector2, velocity: Vector2, damage: float, life: float, target: Enemy = null) -> void:
+	if _shots.size() >= MAX_SHOTS:
+		return
+	var shot: Shot = Shot.new() if _shot_pool.is_empty() else _shot_pool.pop_back()
+	shot.kind = kind
+	shot.position = position
+	shot.velocity = velocity
+	shot.damage = damage
+	shot.life = life
+	shot.target = target
+	_shots.append(shot)
+
+
+func _step_shots(delta: float) -> void:
+	for index in range(_shots.size() - 1, -1, -1):
+		var shot := _shots[index]
+		shot.life -= delta
+		if shot.life <= 0.0:
+			_recycle_shot(index)
+			continue
+		if shot.kind == ShotKind.MISSILE and shot.target != null:
+			var target_angle := (shot.target.position - shot.position).angle()
+			shot.velocity = Vector2.from_angle(rotate_toward(shot.velocity.angle(), target_angle, delta * 5.7)) * 468.0
+		var before := shot.position
+		shot.position += shot.velocity * delta
+		if shot.kind == ShotKind.HOSTILE:
+			var closest := Geometry2D.get_closest_point_to_segment(_player_position, before, shot.position)
+			if _player_position.distance_squared_to(closest) < PLAYER_RADIUS * PLAYER_RADIUS:
+				_hurt_player(shot.damage)
+				_recycle_shot(index)
+				if _ended:
+					return
+			continue
+		var hit := _target_along_segment(before, shot.position)
+		if hit == -1:
+			continue
+		if shot.kind == ShotKind.MISSILE:
+			_fx.ring(shot.position, VIOLET, 90.0, 0.46)
+			_fx.burst(shot.position, VIOLET, 16, 200.0)
+			_area_damage(shot.position, 85.0, shot.damage)
+		else:
+			_damage_enemy(hit, shot.damage, shot.velocity.normalized())
+		_recycle_shot(index)
+
+
+func _target_along_segment(start: Vector2, finish: Vector2) -> int:
+	var closest := -1
+	var distance := INF
+	for index in _enemies.size():
+		var enemy := _enemies[index]
+		var point := Geometry2D.get_closest_point_to_segment(enemy.position, start, finish)
+		if point.distance_squared_to(enemy.position) > enemy.radius * enemy.radius:
+			continue
+		var contact := start.distance_squared_to(point)
+		if contact < distance:
+			distance = contact
+			closest = index
+	return closest
+
+
+func _recycle_shot(index: int) -> void:
+	var shot := _shots[index]
+	shot.target = null
+	_shot_pool.append(shot)
+	_shots[index] = _shots.back()
+	_shots.pop_back()
+
+
+func _area_damage(origin: Vector2, radius: float, damage: float) -> void:
+	for index in range(_enemies.size() - 1, -1, -1):
+		var enemy := _enemies[index]
+		var reach := radius + enemy.radius
+		if origin.distance_squared_to(enemy.position) <= reach * reach:
+			_damage_enemy(index, damage, origin.direction_to(enemy.position))
+
+
+func _damage_enemy(index: int, damage: float, direction: Vector2) -> void:
+	var enemy := _enemies[index]
+	enemy.hp -= damage
+	enemy.hit_flash = 0.1
+	_fx.burst(enemy.position - direction * enemy.radius * 0.4, SHIP_TINTS[enemy.kind], 5, 145.0, direction)
+	if enemy.hp > 0.0:
+		return
+	_kills += 1
+	_spawn_orb(enemy.position, enemy.xp)
+	_fx.burst(enemy.position, SHIP_TINTS[enemy.kind], 16 + enemy.kind * 4, 243.0)
+	_fx.ring(enemy.position, SHIP_TINTS[enemy.kind], 47.0 + enemy.kind * 14.0, 0.41)
+	for shot in _shots:
+		if shot.target == enemy:
+			shot.target = null
+	_enemy_pool.append(enemy)
+	_enemies[index] = _enemies.back()
+	_enemies.pop_back()
+	sound_requested.emit("kill")
+
+
+func _hurt_player(damage: float) -> void:
+	if _hit_cooldown > 0.0 or _ended:
+		return
+	_hp = maxf(0.0, _hp - damage * _loadout.damage_multiplier())
+	_hit_cooldown = 0.71
+	_fx.burst(_player_position, WARM, 19, 183.0)
+	_fx.ring(_player_position, WARM, 69.0, 0.41)
+	sound_requested.emit("hurt")
+	_publish_telemetry()
+	if _hp <= 0.0:
+		_finish(false)
+
+
+func _spawn_orb(position: Vector2, value: int) -> void:
+	if _xp_orbs.size() >= MAX_ORBS:
+		# Preserve XP when the pickup budget is full by merging it with a nearby core.
+		var nearest := _xp_orbs[0]
+		for current in _xp_orbs:
+			if position.distance_squared_to(current.position) < position.distance_squared_to(nearest.position):
+				nearest = current
+		nearest.value += value
+		return
+	var orb: Orb = Orb.new() if _orb_pool.is_empty() else _orb_pool.pop_back()
+	orb.position = position
+	orb.velocity = Vector2.ZERO
+	orb.value = value
+	orb.phase = _rng.randf_range(0.0, TAU)
+	_xp_orbs.append(orb)
+
+
+func _step_orbs(delta: float) -> void:
+	var magnet_range := _loadout.magnet_range()
+	for index in range(_xp_orbs.size() - 1, -1, -1):
+		var orb := _xp_orbs[index]
+		var distance := orb.position.distance_to(_player_position)
+		if distance < 24.0:
+			_xp += orb.value
+			_fx.burst(orb.position, CYAN, 7, 112.0)
+			_orb_pool.append(orb)
+			_xp_orbs[index] = _xp_orbs.back()
+			_xp_orbs.pop_back()
+			sound_requested.emit("pickup")
+			continue
+		if distance < magnet_range:
+			var desired := orb.position.direction_to(_player_position) * lerpf(560.0, 193.0, distance / magnet_range)
+			orb.velocity = orb.velocity.lerp(desired, 1.0 - exp(-delta * 9.0))
+		else:
+			orb.velocity = orb.velocity.move_toward(Vector2.ZERO, 480.0 * delta)
+		orb.position += orb.velocity * delta
+
+
+func _offer_level() -> void:
+	_level += 1
+	_xp -= _xp_goal
+	var tier := _level - 1
+	_xp_goal = 12 + 7 * tier + 2 * tier * tier
+	_pending_cards = _loadout.cards(_rng, _level)
+	_clear_pointer()
+	_publish_telemetry()
+	upgrade_requested.emit(_pending_cards.duplicate(true))
+
+
+func _finish(won: bool) -> void:
+	_ended = true
+	_clear_pointer()
+	_publish_telemetry()
+	mission_ended.emit({"won": won, "seconds": _mission_time, "kills": _kills, "level": _level})
+
+
+func _publish_telemetry() -> void:
+	telemetry.emit({
+		"hp": _hp, "max_hp": _max_hp, "xp": _xp, "xp_goal": _xp_goal, "level": _level,
+		"seconds": _mission_time, "duration": _duration, "kills": _kills
+	})
+
+
+func _seed_sky() -> void:
+	var star_rng := RandomNumberGenerator.new()
+	star_rng.seed = 817229
+	for index in 126:
+		_distant_stars.append(Vector2(star_rng.randf(), star_rng.randf()))
+	for index in 31:
+		_near_stars.append(Vector2(star_rng.randf(), star_rng.randf()))
+
+
+func _draw() -> void:
+	var viewport := get_viewport_rect().size
+	var offset := viewport * 0.5 - _camera
+	var frame := Rect2(Vector2.ZERO, viewport)
+	_draw_sky(viewport)
+	draw_rect(Rect2(ARENA.position + offset, ARENA.size), Color("#38657b80"), false, 1.6)
+	_draw_orbs(offset, frame)
+	_fx.render(self, offset, frame.grow(20.0))
+	var near_view := frame.grow(120.0)
+	for enemy in _enemies:
+		var origin := enemy.position + offset
+		if near_view.has_point(origin):
+			_draw_enemy(enemy, origin)
+	for shot in _shots:
+		var origin := shot.position + offset
+		if near_view.has_point(origin):
+			_draw_shot(shot, origin)
+	_draw_player(_player_position + offset)
+	_draw_steering()
+	if _hit_cooldown > 0.54:
+		var opacity := (_hit_cooldown - 0.54) * 0.81
+		draw_rect(frame, Color(WARM, opacity))
+
+
+func _draw_sky(viewport: Vector2) -> void:
+	draw_rect(Rect2(Vector2.ZERO, viewport), Color("#080d1b"))
+	if _nebula_texture != null:
+		var texture_size := _nebula_texture.get_size()
+		var fit := maxf(viewport.x / texture_size.x, viewport.y / texture_size.y) * 1.074
+		var covered := texture_size * fit
+		var slack := (covered - viewport) * 0.5
+		var drift := _camera / ARENA.size * slack * 1.45
+		draw_texture_rect(_nebula_texture, Rect2(-slack - drift, covered), false)
+	var space := viewport + Vector2(48.0, 48.0)
+	for index in _distant_stars.size():
+		var origin := _star_position(_distant_stars[index], space, 0.08)
+		var tint := CYAN.lerp(WHITE_HOT, float(index % 8) / 8.0)
+		draw_rect(Rect2(origin, Vector2.ONE * (1.0 + (index % 7) * 0.13)), Color(tint, 0.16 + (index % 4) * 0.09))
+	for index in _near_stars.size():
+		var origin := _star_position(_near_stars[index], space, 0.24)
+		var intensity := 0.44 + 0.18 * sin(index * 9.12 + _mission_time * 1.25)
+		draw_circle(origin, 1.45, Color(WHITE_HOT, intensity), true, -1.0, true)
+		if index % 7 == 0:
+			draw_line(origin - Vector2(4.5, 0.0), origin + Vector2(4.5, 0.0), Color(CYAN, 0.21), 0.8, true)
+			draw_line(origin - Vector2(0.0, 4.5), origin + Vector2(0.0, 4.5), Color(CYAN, 0.21), 0.8, true)
+
+
+func _star_position(seed_position: Vector2, span: Vector2, parallax: float) -> Vector2:
+	var drift := seed_position * span - _camera * parallax
+	return Vector2(fposmod(drift.x, span.x) - 24.0, fposmod(drift.y, span.y) - 24.0)
+
+
+func _draw_orbs(offset: Vector2, frame: Rect2) -> void:
+	for orb in _xp_orbs:
+		var origin := orb.position + offset
+		if not frame.has_point(origin):
+			continue
+		var time := _mission_time * 2.6 + orb.phase
+		origin.y += sin(time) * 2.7
+		var width := 4.5 + 1.8 * absf(cos(time))
+		var height := 8.0 + float(orb.value > 9) * 2.6
+		var shard := PackedVector2Array([
+			origin - Vector2(0.0, height), origin + Vector2(width, 0.0),
+			origin + Vector2(0.0, height), origin - Vector2(width, 0.0)
+		])
+		draw_circle(origin, height * 1.36, Color(CYAN, 0.1), true, -1.0, true)
+		draw_polygon(shard, PackedColorArray([WHITE_HOT, CYAN, Color("#32a8e9"), Color("#585ee1")]))
+		draw_line(origin - Vector2(0.0, height), origin + Vector2(0.0, height * 0.55), Color(WHITE_HOT, 0.62), 0.8, true)
+
+
+func _draw_enemy(enemy: Enemy, origin: Vector2) -> void:
+	var texture := _textures[enemy.kind]
+	if texture == null:
+		return
+	var body_size := _ship_size(texture, SHIP_BOUNDS[enemy.kind])
+	var hot := SHIP_TINTS[enemy.kind]
+	draw_set_transform(origin, enemy.heading + PI * 0.5)
+	var engine_time := _mission_time + enemy.phase
+	_fx.engine(self, Vector2(0.0, body_size.y * 0.34), body_size.x * 0.072, 13.0 + enemy.kind * 4.5, hot, engine_time)
+	var tint := Color.WHITE.lerp(Color(2.0, 1.8, 1.55), enemy.hit_flash * 8.0)
+	draw_texture_rect(texture, Rect2(-body_size * 0.5, body_size), false, tint)
+	if enemy.kind == EnemyKind.LANCER and enemy.action_timer > 0.0 and enemy.action_timer < 0.29:
+		var muzzle := Vector2(0.0, -body_size.y * 0.47)
+		var brightness := 1.0 - enemy.action_timer / 0.29
+		draw_circle(muzzle, 11.0 * brightness, Color(WARM, 0.3), true, -1.0, true)
+		draw_circle(muzzle, 3.7 * brightness, WHITE_HOT, true, -1.0, true)
+	draw_set_transform(Vector2.ZERO)
+	if enemy.hp < enemy.max_hp:
+		var line_start := origin + Vector2(-15.0, body_size.length() * 0.42)
+		draw_line(line_start, line_start + Vector2(30.0, 0.0), Color("#1a151f"), 3.0)
+		draw_line(line_start, line_start + Vector2(30.0 * enemy.hp / enemy.max_hp, 0.0), Color(hot, 0.84), 1.5)
+
+
+func _draw_shot(shot: Shot, origin: Vector2) -> void:
+	var forward := shot.velocity.normalized()
+	var tint := CYAN
+	var tail := 29.0
+	var width := 2.1
+	if shot.kind == ShotKind.HOSTILE:
+		tint = WARM
+		tail = 18.0
+		width = 2.8
+	elif shot.kind == ShotKind.MISSILE:
+		tint = VIOLET
+		tail = 40.0
+		width = 3.4
+	draw_line(origin - forward * tail, origin + forward * 5.0, Color(tint, 0.24), width * 3.3, true)
+	draw_line(origin - forward * tail * 0.68, origin + forward * 5.0, tint, width * 1.4, true)
+	draw_line(origin - forward * tail * 0.25, origin + forward * 5.0, WHITE_HOT, width * 0.63, true)
+
+
+func _ship_size(texture: Texture2D, max_dimension: float) -> Vector2:
+	var source := texture.get_size()
+	return source * max_dimension / maxf(source.x, source.y)
+
+
+func _draw_player(origin: Vector2) -> void:
+	if _player_texture == null:
+		return
+	var body_size := _ship_size(_player_texture, 93.0)
+	var boost := _player_velocity.length() / CRUISE_SPEED
+	var color := CYAN if _hit_cooldown < 0.54 else WARM
+	draw_set_transform(origin, _player_heading + PI * 0.5)
+	var nozzle := body_size * Vector2(-0.073, 0.407)
+	var length := 26.0 + 15.0 * boost
+	_fx.engine(self, nozzle, 5.1, length, Color("#5099ff"), _mission_time)
+	_fx.engine(self, Vector2(-nozzle.x, nozzle.y), 5.1, length, CYAN, _mission_time)
+	var tint := Color.WHITE
+	if _hit_cooldown > 0.0:
+		tint = Color.WHITE.lerp(Color("#ff9580"), _hit_cooldown * 0.73)
+	draw_texture_rect(_player_texture, Rect2(-body_size * 0.5, body_size), false, tint)
+	if _firing_flash > 0.0:
+		for sign_x: int in [-1, 1]:
+			var muzzle := Vector2(sign_x * 20.0, -17.0)
+			var brightness := _firing_flash / 0.078
+			draw_line(muzzle + Vector2(0.0, -11.0), muzzle + Vector2(0.0, 4.0), Color(CYAN, brightness * 0.48), 6.0, true)
+			draw_line(muzzle + Vector2(0.0, -9.0), muzzle + Vector2(0.0, 2.0), Color(WHITE_HOT, brightness), 2.2, true)
+	var hull_marks := 0.35 + 0.09 * sin(_mission_time * 2.6)
+	draw_arc(Vector2.ZERO, 57.0, 0.23, 0.92, 12, Color(color, hull_marks), 1.0, true)
+	draw_arc(Vector2.ZERO, 57.0, PI - 0.92, PI - 0.23, 12, Color(color, hull_marks), 1.0, true)
+	draw_set_transform(Vector2.ZERO)
+
+
+func _draw_steering() -> void:
+	if _touch_index == -1 and not _mouse_drag:
+		return
+	var center := _pointer_position - _steer_offset
+	draw_circle(center, 52.0, Color("#10243840"), true, -1.0, true)
+	draw_arc(center, 52.0, 0.0, TAU, 40, Color(CYAN, 0.29), 1.2, true)
+	draw_line(center, _pointer_position, Color(CYAN, 0.28), 1.4, true)
+	draw_circle(_pointer_position, 12.0, Color(CYAN, 0.22), true, -1.0, true)
+	draw_arc(_pointer_position, 12.0, 0.0, TAU, 20, Color(CYAN, 0.56), 1.3, true)
