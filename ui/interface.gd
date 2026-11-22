@@ -13,6 +13,12 @@ const Body = preload("res://assets/fonts/Barlow-Medium.ttf")
 const Display = preload("res://assets/fonts/Oxanium.ttf")
 const Mission := preload("res://data/missions/peryhelium.tres")
 const PAGE_MARGIN := 28.0
+const RARITIES := {
+	"common": { "title": "POSPOLITA", "accent": Palette.MUTED },
+	"rare": { "title": "RZADKA", "accent": Palette.CYAN },
+	"epic": { "title": "EPICKA", "accent": Palette.VIOLET },
+	"legendary": { "title": "LEGENDARNA", "accent": Color("#ffd17e") },
+}
 
 var _headline := FontVariation.new()
 var _detail := FontVariation.new()
@@ -27,6 +33,17 @@ var _kills: Label
 var _xp_bar: ProgressBar
 var _xp_value: Label
 var _level: Label
+var _wave_panel: PanelContainer
+var _wave_number: Label
+var _wave_name: Label
+var _warning: Label
+var _boss_panel: PanelContainer
+var _boss_name: Label
+var _boss_bar: ProgressBar
+var _boss_integrity: Label
+var _hp_pulse: Tween
+var _xp_pulse: Tween
+var _wave_pulse: Tween
 var _telemetry: Dictionary = {}
 
 
@@ -107,7 +124,7 @@ func show_menu() -> void:
 	_tag(mission, Mission.title.to_upper(), Palette.TEXT, 31)
 	var time := _tag(top, _clock(Mission.duration_seconds), Palette.CYAN, 24)
 	time.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_body(details, "Przetrwaj atak floty i ulepszaj uzbrojenie.", 20)
+	_body(details, "Rozwiń uzbrojenie i odeprzyj kolejne fale floty.", 20)
 
 	var launch := _button(bottom, "LaunchButton", "ROZPOCZNIJ MISJĘ", launch_requested.emit, true)
 	var arrow := _glyph(launch, "arrow", Palette.NIGHT, Vector2(32, 32))
@@ -132,9 +149,12 @@ func show_hud() -> void:
 
 
 func update_hud(data: Dictionary) -> void:
+	var previous := _telemetry
 	_telemetry = data.duplicate()
 	if is_instance_valid(_hud):
 		_render_hud()
+		if not previous.is_empty() and float(data.get("seconds", 0)) >= float(previous.get("seconds", 0)):
+			_animate_hud_changes(previous)
 
 
 func show_pause() -> void:
@@ -158,26 +178,45 @@ func show_upgrades(cards: Array[Dictionary]) -> void:
 func show_result(data: Dictionary) -> void:
 	var stack := _modal_stack("ResultOverlay")
 	var won := bool(data.get("won", false))
+	var elapsed := float(data.get("seconds", 0.0))
 	var accent := Palette.CYAN if won else Palette.DANGER
 	_tag(stack, Mission.title.to_upper(), accent, 16)
 	var title := "MISJA UKOŃCZONA" if won else "STATEK UTRACONY"
 	var subtitle := "Przetrwano atak floty. Trasa jest otwarta." if won else "Sygnał statku zanikł przed końcem misji."
+	if data.get("boss_defeated", false):
+		subtitle = "Leviathan został zniszczony."
+	elif not won and elapsed >= Mission.duration_seconds:
+		title = "CZAS UPŁYNĄŁ"
+		subtitle = "Leviathan pozostał w sektorze."
 	_heading(stack, title, subtitle, accent)
 	_spacer(stack, 5)
 	var stats := _row(8)
 	stack.add_child(stats)
-	_stat(stats, "CZAS LOTU", _clock(float(data.get("seconds", 0))))
+	_stat(stats, "CZAS LOTU", _clock(elapsed))
 	_stat(stats, "ZESTRZELENIA", str(data.get("kills", 0)))
 	_stat(stats, "POZIOM", str(data.get("level", 1)))
+	if data.has("reward"):
+		var salvage := _hud_cell(stack)
+		salvage.get_parent().name = "RewardRow"
+		var reward := _row(9)
+		salvage.add_child(reward)
+		_glyph(reward, "salvage", Palette.AMBER, Vector2(32, 32))
+		var currency := _tag(reward, "RDZENIE ODZYSKU", Palette.MUTED, 15)
+		currency.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		currency.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var total := _tag(reward, "+%d" % int(data["reward"]), Palette.AMBER, 27)
+		total.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_spacer(stack, 5)
 	_button(stack, "RestartButton", "LEĆ PONOWNIE", restart_requested.emit, true)
 	_button(stack, "MenuButton", "MENU GŁÓWNE", menu_requested.emit)
 
 
 func _build_hud(content: Control) -> void:
+	var cockpit := _column(7)
+	content.add_child(cockpit)
+	cockpit.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	var header := _row(8)
-	content.add_child(header)
-	header.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	cockpit.add_child(header)
 	var health := _hud_cell(header)
 	(health.get_parent() as Control).size_flags_stretch_ratio = 1.45
 	health.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -202,6 +241,7 @@ func _build_hud(content: Control) -> void:
 	_pause_button.accessibility_name = "Wstrzymaj misję"
 	var pause_mark := _glyph(_pause_button, "pause", Palette.TEXT, Vector2(32, 32))
 	pause_mark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_build_encounters(cockpit)
 
 	var footer := _hud_cell(content)
 	var footer_panel := footer.get_parent() as Control
@@ -215,6 +255,36 @@ func _build_hud(content: Control) -> void:
 	_xp_bar = _bar(footer, Palette.VIOLET, 6)
 
 
+func _build_encounters(cockpit: Container) -> void:
+	var wave := _hud_cell(cockpit)
+	_wave_panel = wave.get_parent() as PanelContainer
+	_wave_panel.name = "WaveHUD"
+	_wave_panel.hide()
+	var wave_top := _row(9)
+	wave.add_child(wave_top)
+	_wave_number = _tag(wave_top, "", Palette.CYAN, 14)
+	_wave_name = _tag(wave_top, "", Palette.MUTED, 15)
+	_wave_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_wave_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_warning = _body(wave, "", 19, Palette.AMBER)
+	_warning.name = "BossWarning"
+	_warning.hide()
+
+	var boss := _hud_cell(cockpit)
+	_boss_panel = boss.get_parent() as PanelContainer
+	_boss_panel.name = "BossHUD"
+	var shell := Palette.panel(Color("#221622f2"), Color("#794863"), 9, 9.0)
+	_boss_panel.add_theme_stylebox_override("panel", shell)
+	_boss_panel.hide()
+	var boss_top := _row(9)
+	boss.add_child(boss_top)
+	_boss_name = _tag(boss_top, "", Palette.DANGER, 16)
+	_boss_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_boss_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_boss_integrity = _tag(boss_top, "", Palette.TEXT, 16)
+	_boss_bar = _bar(boss, Palette.DANGER, 7)
+
+
 func _render_hud() -> void:
 	var hp := float(_telemetry.get("hp", 100))
 	var max_hp := maxf(1.0, float(_telemetry.get("max_hp", 100)))
@@ -224,7 +294,7 @@ func _render_hud() -> void:
 	var fill := _health_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	var low_hp := hp <= max_hp * 0.25
 	fill.bg_color = Palette.DANGER if low_hp else Palette.CYAN
-	_health_value.modulate = Palette.DANGER if low_hp else Color.WHITE
+	_health_value.add_theme_color_override("font_color", Palette.DANGER if low_hp else Palette.TEXT)
 
 	var total := float(_telemetry.get("duration", Mission.duration_seconds))
 	var remaining := maxf(0, total - float(_telemetry.get("seconds", 0)))
@@ -237,16 +307,63 @@ func _render_hud() -> void:
 	_xp_value.text = "XP %d / %d" % [xp, goal]
 	_xp_bar.max_value = goal
 	_xp_bar.value = xp
+	_render_encounters()
+
+
+func _render_encounters() -> void:
+	var wave := int(_telemetry.get("wave", 0))
+	_warning.text = str(_telemetry.get("warning", ""))
+	_warning.visible = not _warning.text.is_empty()
+	_wave_number.text = "FALA %02d" % wave if wave > 0 else "OSTRZEŻENIE"
+	_wave_name.text = str(_telemetry.get("wave_name", ""))
+	_wave_panel.visible = wave > 0 or _warning.visible
+	var boss_hp := float(_telemetry.get("boss_hp", 0))
+	var boss_max_hp := float(_telemetry.get("boss_max_hp", 0))
+	_boss_panel.visible = boss_max_hp > 0.0 and boss_hp > 0.0
+	if _boss_panel.visible:
+		_boss_name.text = str(_telemetry.get("boss_name", "Drednot")).to_upper()
+		_boss_bar.max_value = boss_max_hp
+		_boss_bar.value = boss_hp
+		_boss_integrity.text = "%d%%" % ceili(100.0 * boss_hp / boss_max_hp)
+
+
+func _animate_hud_changes(previous: Dictionary) -> void:
+	var hp := _health_bar.value
+	if hp < float(previous.get("hp", hp)) and hp <= _health_bar.max_value * 0.25:
+		_hp_pulse = _pulse(_health_bar, _hp_pulse)
+	var leveled_up := int(_telemetry.get("level", 1)) != int(previous.get("level", 1))
+	if _xp_bar.value > float(previous.get("xp", 0)) or leveled_up:
+		_xp_pulse = _pulse(_xp_bar, _xp_pulse)
+	var changed_wave := int(_telemetry.get("wave", 0)) != int(previous.get("wave", 0))
+	var changed_warning := _warning.visible and _warning.text != str(previous.get("warning", ""))
+	if _wave_panel.visible and (changed_wave or changed_warning):
+		_wave_pulse = _pulse(_warning if changed_warning else _wave_number, _wave_pulse)
+
+
+func _pulse(target: Control, active: Tween) -> Tween:
+	if active and active.is_running():
+		return active
+	var tween := target.create_tween().set_trans(Tween.TRANS_SINE)
+	tween.tween_property(target, "modulate:a", 0.48, 0.10)
+	tween.tween_property(target, "modulate:a", 1.0, 0.23)
+	return tween
 
 
 func _add_upgrade(parent: Container, card: Dictionary, index: int) -> void:
 	var id := str(card.get("id", ""))
-	var accent := _upgrade_color(id)
+	var rarity: Dictionary = RARITIES.get(str(card.get("rarity", "common")), RARITIES["common"])
+	var accent: Color = rarity["accent"]
+	var category := str(card.get("tag", "SYSTEM")).to_upper()
+	if card.get("is_evolution", false) and not category.begins_with("EWOLUCJA"):
+		category = "EWOLUCJA"
+	elif int(card.get("next_rank", 1)) > 1 and category.find("POZIOM") == -1:
+		category += " • POZIOM %d" % int(card["next_rank"])
+	var metadata := "%s  /  %s" % [rarity["title"], category]
 	var upgrade := _button(parent, "UpgradeButton%d" % index, "", upgrade_selected.emit.bind(id))
 	upgrade.custom_minimum_size.y = 110
 	upgrade.accessibility_name = str(card.get("title", "Ulepszenie"))
-	upgrade.accessibility_description = str(card.get("description", ""))
-	var normal := Palette.panel(Color("#152334"), Palette.OUTLINE)
+	upgrade.accessibility_description = "%s. %s" % [metadata, card.get("description", "")]
+	var normal := Palette.panel(Palette.SURFACE.lerp(accent, 0.055), Palette.OUTLINE)
 	normal.border_width_left = 3
 	normal.border_color = accent.darkened(0.48)
 	var hover := normal.duplicate() as StyleBoxFlat
@@ -272,13 +389,14 @@ func _add_upgrade(parent: Container, card: Dictionary, index: int) -> void:
 	badge.add_theme_stylebox_override(
 		"panel", Palette.panel(accent.darkened(0.89), accent.darkened(0.62), 8))
 	row.add_child(badge)
-	_glyph(badge, id, accent, Vector2(45, 45))
+	_glyph(badge, str(card.get("icon", id)), accent, Vector2(45, 45))
 
 	var copy := _column(1)
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	copy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(copy)
-	_tag(copy, str(card.get("tag", "SYSTEM")).to_upper(), accent, 13)
+	var tier := _tag(copy, metadata, accent, 13)
+	tier.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var name_label := _tag(copy, str(card.get("title", "Ulepszenie")), Palette.TEXT, 25)
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_body(copy, str(card.get("description", "")), 19)
@@ -287,16 +405,6 @@ func _add_upgrade(parent: Container, card: Dictionary, index: int) -> void:
 	row.minimum_size_changed.connect(func() -> void:
 		upgrade.custom_minimum_size.y = maxf(110.0, row.get_combined_minimum_size().y + 20.0)
 	)
-
-
-func _upgrade_color(id: String) -> Color:
-	match id:
-		"repair", "shield":
-			return Palette.AMBER
-		"tractor", "thruster":
-			return Palette.VIOLET
-		_:
-			return Palette.CYAN
 
 
 func _modal_stack(page_name: String) -> VBoxContainer:

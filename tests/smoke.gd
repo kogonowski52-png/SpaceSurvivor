@@ -2,7 +2,7 @@ extends SceneTree
 ## Exercises the normal entry scene and routes real GUI, keyboard and touch events through Godot.
 
 const ARROWS := [&"move_left", &"move_right", &"move_up", &"move_down"]
-const MISSION_LENGTH := 240.0
+const MISSION_LENGTH := 600.0
 
 var game: Node
 var capture_dir := ""
@@ -11,6 +11,7 @@ var full_mission := false
 var late_capture := false
 var finished: Dictionary
 var offered: Array
+var latest_telemetry: Dictionary
 var selected_upgrade := ""
 var pilot_hp := 100.0
 var max_hp := 100.0
@@ -57,6 +58,7 @@ func _run() -> void:
 	if not _check(game.phase == "combat" and is_instance_valid(game.arena), "launch button starts mission"):
 		quit(1)
 		return
+	_check(is_equal_approx(float(game.arena._duration), MISSION_LENGTH), "mission lasts ten minutes")
 	_watch_arena()
 	await _test_movement()
 	await _advance_to(3.5)
@@ -80,7 +82,9 @@ func _run() -> void:
 		quit(1)
 		return
 	var upgrade_at := _seconds()
+	game.ui.upgrade_selected.emit("invalid-qa-card")
 	await _steps(20)
+	_check(game.phase == "upgrade", "invalid upgrade choice preserves the selection screen")
 	_check(is_equal_approx(_seconds(), upgrade_at), "simulation clock freezes while choosing an upgrade")
 	var expected_id: String = offered[0].id
 	await _click("UpgradeButton0")
@@ -98,10 +102,17 @@ func _run() -> void:
 	_check(_seconds() > paused_at, "simulation clock advances after resume")
 	await _click("PauseButton")
 	var previous_arena_id: int = game.arena.get_instance_id()
+	var reset_state := {}
+	game.ui.restart_requested.connect(func() -> void:
+		reset_state.merge({
+			"seconds": _seconds(), "hp": game.arena._hp,
+			"max_hp": game.arena._max_hp, "level": game.arena._level
+		})
+	, CONNECT_ONE_SHOT)
 	await _click("RestartButton")
 	_check(game.phase == "combat" and game.arena.get_instance_id() != previous_arena_id, "restart creates a fresh combat arena")
-	_check(_seconds() < 1.0, "restart resets mission clock")
-	_check(game.arena._hp == game.arena._max_hp and game.arena._level == 1, "restart restores full HP and level one")
+	_check(is_zero_approx(float(reset_state.get("seconds", -1.0))), "restart resets mission clock immediately")
+	_check(not reset_state.is_empty() and reset_state.hp == reset_state.max_hp and reset_state.level == 1, "restart restores full HP and level one")
 
 	if capture_dir.is_empty():
 		await _test_defeat()
@@ -152,7 +163,9 @@ func _test_movement() -> void:
 
 func _until_upgrade() -> bool:
 	var deadline := _seconds() + 45.0
-	while game.phase == "combat" and _seconds() < deadline:
+	for step in 580:
+		if game.phase != "combat" or _seconds() >= deadline:
+			break
 		_collect_xp()
 		await _steps(5)
 	_release_actions()
@@ -162,8 +175,8 @@ func _until_upgrade() -> bool:
 
 func _test_defeat() -> void:
 	_watch_arena()
-	for attempt in 12:
-		if game.phase == "result" or _seconds() > 130.0:
+	for attempt in 20:
+		if game.phase == "result" or _seconds() > 230.0:
 			break
 		await _advance_to(_seconds() + 12.0)
 		if game.phase == "upgrade":
@@ -171,6 +184,7 @@ func _test_defeat() -> void:
 	if not _check(game.phase == "result" and not finished.get("won", true), "unmanned ship reaches natural defeat result"):
 		return
 	_check(finished.get("seconds", 0.0) > 0.0, "defeat reports elapsed play time")
+	_check(int(finished.get("reward", -1)) == _earned_salvage(), "defeat reports earned salvage without a victory bonus")
 	await _click("RestartButton")
 	_check(game.phase == "combat", "result restart begins a new run")
 	await _click("PauseButton")
@@ -184,24 +198,37 @@ func _test_completion() -> void:
 	var won := false
 	var victory_at := 0.0
 	for seed_value in [976_138, 473_240, 295_820]:
+		var salvage_before := _profile_salvage()
 		await _click("LaunchButton")
 		_watch_arena()
 		game.arena._rng.seed = seed_value
-		for step in 4000:
+		var observed_types := {}
+		for step in int(MISSION_LENGTH * 12.0) + 700:
 			if game.phase != "combat" and game.phase != "upgrade":
 				break
+			for enemy in game.arena._enemies:
+				observed_types[enemy.kind] = true
 			await _pilot_step()
 		_release_actions()
-		print("QA mission result (wave seed %d): " % seed_value, finished)
+		print("QA mission result (wave seed %d): " % seed_value, finished, " enemy types: ", observed_types.keys())
 		if game.phase == "result":
 			won = finished.get("won", false)
 			victory_at = float(finished.get("seconds", 0.0))
+			if won:
+				_check(observed_types.size() >= 8, "full mission spawns all enemy classes and both bosses")
+				_check(bool(finished.get("boss_defeated", false)), "victory follows actual final boss defeat")
+				_check(int(finished.get("reward", 0)) == _earned_salvage() + 60, "victory grants recovered salvage and its completion bonus")
+				_check(_visible_control("RewardRow") != null, "victory displays the reward in the result screen")
+				var balance := _profile_salvage()
+				_check(balance == salvage_before + int(finished.reward), "victory persists the full reward to the pilot profile")
+				game.arena.mission_ended.emit(finished)
+				_check(_profile_salvage() == balance, "repeated completion signal preserves the credited balance")
 			await _click("MenuButton")
 			_check(game.phase == "menu", "result menu button returns to title")
 		if won or game.phase != "menu":
 			break
 	_check(won, "scripted input survives the complete mission")
-	_check(absf(victory_at - MISSION_LENGTH) < 0.25, "winning result is reached at 240 seconds")
+	_check(absf(victory_at - MISSION_LENGTH) < 0.25, "winning result is reached at 600 seconds")
 
 
 func _pilot_step() -> void:
@@ -223,12 +250,12 @@ func _capture_late_combat() -> void:
 	Engine.physics_ticks_per_second = 120
 	Engine.time_scale = 2.0
 	var best_kind_count := 0
-	for step in 1600:
-		if game.phase == "result" or _seconds() > 110.0:
+	for step in 2400:
+		if game.phase == "result" or _seconds() > 180.0:
 			break
-		if game.phase == "combat" and _seconds() >= 64.0:
+		if game.phase == "combat" and _seconds() >= 110.0:
 			var visible := _visible_enemies()
-			if visible.count >= 3 and visible.kinds > best_kind_count:
+			if visible.count >= 3 and visible.has_new_type and visible.kinds > best_kind_count:
 				if not await _capture("walka-fala"):
 					break
 				print("QA late scene %.2fs: %d fully visible ships, %d types" % [_seconds(), visible.count, visible.kinds])
@@ -237,7 +264,7 @@ func _capture_late_combat() -> void:
 					break
 		await _pilot_step()
 	_release_actions()
-	_check(best_kind_count >= 2, "late combat frame contains ships from multiple enemy types")
+	_check(best_kind_count >= 2, "late combat frame contains multiple enemy types and a new enemy")
 
 
 func _visible_enemies() -> Dictionary:
@@ -250,7 +277,11 @@ func _visible_enemies() -> Dictionary:
 		if interior.has_point(enemy.position + world_offset):
 			kinds[enemy.kind] = true
 			count += 1
-	return {"count": count, "kinds": kinds.size()}
+	var has_new_type := false
+	for kind: int in kinds:
+		if kind >= 3:
+			has_new_type = true
+	return {"count": count, "kinds": kinds.size(), "has_new_type": has_new_type}
 
 
 func _wait_for_combat_frame() -> void:
@@ -263,17 +294,27 @@ func _wait_for_combat_frame() -> void:
 
 
 func _winning_choice() -> int:
-	var ranked := ["missiles", "pulse_damage", "nova", "shield", "pulse_cadence", "repair", "thruster", "tractor"]
-	if pilot_hp < max_hp * 0.65:
-		ranked.erase("repair")
-		ranked.push_front("repair")
+	var priorities := {
+		"pulse_damage": 91.0, "missiles": 89.0, "laser": 85.0,
+		"tesla": 87.0, "drones": 70.0, "nova": 67.0,
+		"pulse_crossfire": 112.0, "missile_cluster": 112.0, "tesla_branch": 106.0,
+		"tractor": 73.0, "repair": 59.0, "shield": 115.0,
+	}
 	var choice := 0
-	var best := ranked.size()
+	var best := -INF
 	for i in offered.size():
-		var rank := ranked.find(offered[i].id)
-		if rank >= 0 and rank < best:
+		var id: String = offered[i].id
+		var rank: int = game.arena._loadout.rank(id)
+		var score: float = priorities.get(id, 0.0)
+		if id == "repair" and pilot_hp < max_hp * 0.83:
+			score += 98.0
+		elif id == "shield":
+			score -= rank * 6.0
+		elif rank == 0:
+			score += 8.0
+		if score > best:
 			choice = i
-			best = rank
+			best = score
 	return choice
 
 
@@ -281,19 +322,30 @@ func _survive() -> void:
 	var position: Vector2 = game.arena._player_position
 	var drift := Vector2.from_angle(_seconds() * 0.74)
 	var danger := Vector2.ZERO
+	var boss = null
 	for enemy in game.arena._enemies:
 		var offset: Vector2 = position - enemy.position
 		var range_px := 255.0 if enemy.kind == game.arena.EnemyKind.LANCER else 145.0
+		if enemy.kind >= game.arena.EnemyKind.MINIBOSS and (boss == null or enemy.kind > boss.kind):
+			boss = enemy
 		var separation := offset.length()
 		if separation < range_px:
 			danger += offset.normalized() * (1.0 - separation / range_px) * 3.0
 	var attraction := _xp_direction(drift)
+	if boss != null and boss.kind == game.arena.EnemyKind.BOSS:
+		var away_from_boss: Vector2 = position - boss.position
+		var orbit := away_from_boss.normalized()
+		var distance_error := clampf((210.0 - away_from_boss.length()) / 110.0, -1.5, 1.5)
+		attraction = orbit.orthogonal() * 0.8 + orbit * distance_error
 	var arena_bounds: Rect2 = game.arena.ARENA
 	var return_to_center := (arena_bounds.get_center() - position) / (arena_bounds.size * 0.5)
 	if absf(return_to_center.x) > 0.78 or absf(return_to_center.y) > 0.78:
 		attraction = return_to_center.normalized() * 1.8
 	var movement := (attraction + danger).normalized()
 	for shot in game.arena._shots:
+		if shot.kind == game.arena.ShotKind.MINE and shot.life <= 0.8:
+			movement = _avoid_point(position, movement, shot.position, shot.life, game.arena.MINE_RADIUS + 28.0)
+			continue
 		if shot.kind != game.arena.ShotKind.HOSTILE:
 			continue
 		var incoming: Vector2 = shot.velocity - movement * 238.0
@@ -301,7 +353,33 @@ func _survive() -> void:
 		var slide: Vector2 = position - projected
 		if slide.length_squared() < 52.0 * 52.0:
 			movement = (movement + slide.normalized() * 2.4).normalized()
+	if boss != null and boss.charge > 0.0 and boss.charge <= 0.8:
+		movement = _dodge_boss(position, movement, boss)
 	_drive(movement)
+
+
+func _avoid_point(position: Vector2, movement: Vector2, center: Vector2, impact_in: float, radius: float) -> Vector2:
+	var future := position + movement * 238.0 * impact_in
+	var clearance := future - center
+	if clearance.length_squared() < radius * radius:
+		return (movement + clearance.normalized() * 2.9).normalized()
+	return movement
+
+
+func _dodge_boss(position: Vector2, movement: Vector2, boss) -> Vector2:
+	var director = game.arena._director
+	var final_boss: bool = boss.kind == game.arena.EnemyKind.BOSS
+	if boss.pattern == 1:
+		var future := position + movement * 238.0 * float(boss.charge)
+		var nearest := Geometry2D.get_closest_point_to_segment(future, boss.attack_origin, boss.attack_origin + boss.aim * 620.0)
+		var clearance: Vector2 = future - nearest
+		var limit := float(director.beam_width(final_boss)) + 25.0
+		if clearance.length_squared() < limit * limit:
+			return (movement + clearance.normalized() * 3.0).normalized()
+	elif boss.pattern == 2:
+		for center: Vector2 in director._zone_centers(boss, final_boss):
+			movement = _avoid_point(position, movement, center, boss.charge, float(director.zone_radius(final_boss)) + 28.0)
+	return movement
 
 
 func _collect_xp() -> void:
@@ -340,9 +418,13 @@ func _release_actions() -> void:
 func _watch_arena() -> void:
 	offered = []
 	finished = {}
+	latest_telemetry = {}
+	pilot_hp = float(game.arena._hp)
+	max_hp = float(game.arena._max_hp)
 	game.arena.upgrade_requested.connect(func(cards: Array[Dictionary]) -> void: offered = cards)
 	game.arena.mission_ended.connect(func(result: Dictionary) -> void: finished = result)
 	game.arena.telemetry.connect(func(data: Dictionary) -> void:
+		latest_telemetry = data
 		pilot_hp = float(data.hp)
 		max_hp = float(data.max_hp)
 	)
@@ -350,6 +432,17 @@ func _watch_arena() -> void:
 
 func _seconds() -> float:
 	return float(game.arena._mission_time) if is_instance_valid(game.arena) else 0.0
+
+
+func _earned_salvage() -> int:
+	return int(game.arena._recovered) + floori(float(game.arena._kills) / 12.0) + int(game.arena._director.wave) * 3
+
+
+func _profile_salvage() -> int:
+	var profile := ConfigFile.new()
+	if profile.load("user://flight_profile.cfg") != OK:
+		return 0
+	return int(profile.get_value("pilot", "salvage", 0))
 
 
 func _advance_to(target: float) -> void:
@@ -374,6 +467,13 @@ func _frames(count: int) -> void:
 func _button(button_name: String) -> BaseButton:
 	for candidate in game.find_children(button_name, "BaseButton", true, false):
 		if candidate.is_visible_in_tree() and not candidate.disabled:
+			return candidate
+	return null
+
+
+func _visible_control(control_name: String) -> Control:
+	for candidate in game.find_children(control_name, "Control", true, false):
+		if candidate.is_visible_in_tree():
 			return candidate
 	return null
 

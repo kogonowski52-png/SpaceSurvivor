@@ -11,12 +11,16 @@ const EffectLibrary := preload("res://combat/battle_fx.gd")
 const MISSION := preload("res://data/missions/peryhelium.tres")
 const HULL := preload("res://data/hangar/peregrine.tres")
 const PULSE = HULL.primary_weapon
+const Arsenal := preload("res://combat/arsenal.gd")
+const WaveDirector := preload("res://combat/wave_director.gd")
 const ARENA := Rect2(-1240.0, -1540.0, 2480.0, 3080.0)
 const PLAYER_RADIUS := 21.0
 const CRUISE_SPEED := 238.0
 const PROMOTION_REPAIR := 10.0
-const MAX_ENEMIES := 54
-const MAX_SHOTS := 128
+const MAX_ENEMIES := 62
+const MAX_SHOTS := 184
+const MAX_FRIENDLY_SHOTS := 126
+const MINE_RADIUS := 54.0
 const MAX_ORBS := 96
 const CYAN := Color("#65e9ff")
 const VIOLET := Color("#b995ff")
@@ -25,13 +29,21 @@ const WHITE_HOT := Color("#e7fcff")
 const SHIP_ART: Array[String] = [
 	"res://assets/art/enemy_scout.png",
 	"res://assets/art/enemy_lancer.png",
-	"res://assets/art/enemy_bastion.png"
+	"res://assets/art/enemy_bastion.png",
+	"res://assets/art/enemy_razor.png",
+	"res://assets/art/enemy_mine.png",
+	"res://assets/art/enemy_elite.png",
+	"res://assets/art/miniboss.png",
+	"res://assets/art/boss.png"
 ]
-const SHIP_TINTS: Array[Color] = [Color("#ffb164"), Color("#ca97ff"), Color("#fa7367")]
-const SHIP_BOUNDS: Array[float] = [62.0, 71.0, 96.0]
+const SHIP_TINTS: Array[Color] = [
+	Color("#ffb164"), Color("#ca97ff"), Color("#fa7367"), Color("#64e9ca"),
+	Color("#ecc571"), Color("#ee91c5"), Color("#ffb580"), Color("#c2a4ff"),
+]
+const SHIP_BOUNDS: Array[float] = [62.0, 71.0, 96.0, 58.0, 89.0, 99.0, 153.0, 222.0]
 
-enum EnemyKind { SCOUT, LANCER, BASTION }
-enum ShotKind { PULSE, MISSILE, HOSTILE }
+enum EnemyKind { SCOUT, LANCER, BASTION, RAZOR, MINELAYER, ELITE, MINIBOSS, BOSS }
+enum ShotKind { PULSE, MISSILE, HOSTILE, MINE, SHARD }
 
 class Enemy:
 	var kind: int
@@ -46,6 +58,12 @@ class Enemy:
 	var hit_flash: float
 	var xp: int
 	var contact_damage: float
+	var pattern: int
+	var charge: float
+	var afterglow: float
+	var aim: Vector2
+	var attack_origin: Vector2
+	var attack_target: Vector2
 
 class Shot:
 	var kind: int
@@ -63,6 +81,8 @@ class Orb:
 
 var _loadout := FlightLoadout.new()
 var _fx := EffectLibrary.new()
+var _director := WaveDirector.new()
+var _arsenal := Arsenal.new()
 var _rng := RandomNumberGenerator.new()
 var _duration := float(MISSION.duration_seconds)
 var _enemies: Array[Enemy] = []
@@ -70,6 +90,9 @@ var _shots: Array[Shot] = []
 var _xp_orbs: Array[Orb] = []
 var _enemy_pool: Array[Enemy] = []
 var _shot_pool: Array[Shot] = []
+var _friendly_shots := 0
+var _mine_count := 0
+var _recovered := 0
 var _orb_pool: Array[Orb] = []
 var _pending_cards: Array[Dictionary] = []
 var _textures: Array[Texture2D] = []
@@ -93,9 +116,6 @@ var _level := 1
 var _kills := 0
 var _mission_time := 0.0
 var _spawn_timer := 0.7
-var _pulse_timer := 0.0
-var _missile_timer := 0.0
-var _nova_timer := 0.0
 var _engine_timer := 0.0
 var _report_timer := 0.0
 var _hit_cooldown := 0.0
@@ -123,13 +143,14 @@ func set_suspended(suspended: bool) -> void:
 	_clear_pointer()
 
 
-func apply_upgrade(id: String) -> void:
+func apply_upgrade(id: String) -> bool:
 	if _ended:
-		return
+		return false
 	for card in _pending_cards:
 		if id != String(card["id"]):
 			continue
-		_loadout.increment(id)
+		if not _loadout.increment(id):
+			return false
 		if id == "repair":
 			_max_hp += 15.0
 			_hp += 30.0
@@ -139,7 +160,8 @@ func apply_upgrade(id: String) -> void:
 		_fx.burst(_player_position, CYAN, 18, 170.0)
 		sound_requested.emit("upgrade")
 		_publish_telemetry()
-		return
+		return true
+	return false
 
 
 func _texture(path: String) -> Texture2D:
@@ -203,9 +225,10 @@ func _physics_process(delta: float) -> void:
 	_mission_time = minf(_duration, _mission_time + delta)
 	if _mission_time >= _duration - 0.0001:
 		_mission_time = _duration
-		_finish(true)
+		_finish(_director._boss_defeated)
 		return
 	_step_player(delta)
+	_director.update(self, delta)
 	_step_spawns(delta)
 	_step_enemies(delta)
 	if _ended:
@@ -262,21 +285,12 @@ func _step_spawns(delta: float) -> void:
 	if _spawn_timer > 0.0:
 		return
 	var pressure := clampf(_mission_time / _duration, 0.0, 1.0)
-	_spawn_timer = lerpf(1.12, 0.56, pressure)
-	if _enemies.size() >= MAX_ENEMIES:
+	_spawn_timer = lerpf(0.99, 0.54, pressure)
+	if _enemies.size() >= MAX_ENEMIES - 2:
 		return
-	_spawn_at_edge(_next_enemy_kind())
-	if _mission_time > 116.0 and _rng.randf() < pressure * 0.45 and _enemies.size() < MAX_ENEMIES:
-		_spawn_at_edge(_next_enemy_kind())
-
-
-func _next_enemy_kind() -> int:
-	var roll := _rng.randf()
-	if _mission_time > 62.0 and roll < 0.25:
-		return EnemyKind.BASTION
-	if _mission_time > 24.0 and roll > 0.66:
-		return EnemyKind.LANCER
-	return EnemyKind.SCOUT
+	_spawn_at_edge(_director.next_kind(_rng))
+	if _enemies.size() < MAX_ENEMIES - 2 and _director.wave >= 2 and _rng.randf() < 0.28 + 0.48 * pressure:
+		_spawn_at_edge(_director.next_kind(_rng))
 
 
 func _spawn_at_edge(kind: int) -> void:
@@ -299,6 +313,12 @@ func _spawn_enemy(kind: int, position: Vector2) -> void:
 	enemy.phase = _rng.randf_range(0.0, TAU)
 	enemy.action_timer = _rng.randf_range(0.65, 1.65)
 	enemy.hit_flash = 0.0
+	enemy.pattern = -1
+	enemy.charge = 0.0
+	enemy.afterglow = 0.0
+	enemy.aim = Vector2.UP
+	enemy.attack_origin = position
+	enemy.attack_target = position
 	match kind:
 		EnemyKind.SCOUT:
 			enemy.radius = 19.0
@@ -318,9 +338,42 @@ func _spawn_enemy(kind: int, position: Vector2) -> void:
 			enemy.speed = 63.0
 			enemy.xp = 13
 			enemy.contact_damage = 24.0
-	enemy.max_hp *= 1.0 + _mission_time / _duration * 0.42
+		EnemyKind.RAZOR:
+			enemy.radius = 18.0
+			enemy.max_hp = 31.0
+			enemy.speed = 108.0
+			enemy.xp = 8
+			enemy.contact_damage = 12.0
+		EnemyKind.MINELAYER:
+			enemy.radius = 30.0
+			enemy.max_hp = 132.0
+			enemy.speed = 72.0
+			enemy.xp = 15
+			enemy.contact_damage = 20.0
+		EnemyKind.ELITE:
+			enemy.radius = 35.0
+			enemy.max_hp = 182.0
+			enemy.speed = 122.0
+			enemy.xp = 24
+			enemy.contact_damage = 23.0
+		EnemyKind.MINIBOSS:
+			enemy.radius = 55.0
+			enemy.max_hp = 1150.0
+			enemy.speed = 113.0
+			enemy.xp = 116
+			enemy.contact_damage = 20.0
+			enemy.action_timer = 2.4
+		EnemyKind.BOSS:
+			enemy.radius = 78.0
+			enemy.max_hp = 3650.0
+			enemy.speed = 123.0
+			enemy.xp = 230
+			enemy.contact_damage = 29.0
+			enemy.action_timer = 2.6
+	if kind < EnemyKind.MINIBOSS:
+		enemy.max_hp *= 1.0 + _mission_time / _duration * 0.85
+		enemy.speed *= 1.0 + _mission_time / _duration * 0.24
 	enemy.hp = enemy.max_hp
-	enemy.speed *= 1.0 + _mission_time / _duration * 0.23
 	_enemies.append(enemy)
 
 
@@ -336,9 +389,23 @@ func _step_enemies(delta: float) -> void:
 				travel += Vector2(-forward.y, forward.x) * sin(_mission_time * 4.5 + enemy.phase) * 0.31
 			EnemyKind.LANCER:
 				travel = _lancer_travel(enemy, forward, distance, delta)
-		travel += _separation(index, enemy)
-		enemy.position = _clamp_to_arena(enemy.position + travel.limit_length(1.34) * enemy.speed * delta, enemy.radius)
-		enemy.heading = lerp_angle(enemy.heading, toward.angle(), 1.0 - exp(-delta * 7.0))
+			EnemyKind.RAZOR:
+				travel = _razor_travel(enemy, forward, delta)
+			EnemyKind.MINELAYER:
+				travel = _minelayer_travel(enemy, forward, distance, delta)
+			EnemyKind.ELITE:
+				travel = _elite_travel(enemy, forward, distance, delta)
+			EnemyKind.MINIBOSS, EnemyKind.BOSS:
+				travel = _director.boss_travel(self, enemy, forward, distance, delta)
+		if _ended:
+			return
+		if enemy.kind < EnemyKind.MINIBOSS:
+			travel += _separation(index, enemy)
+		enemy.position = _clamp_to_arena(enemy.position + travel.limit_length(2.7 if enemy.kind == EnemyKind.RAZOR else 1.34) * enemy.speed * delta, enemy.radius)
+		var aim_heading := toward.angle()
+		if (enemy.kind >= EnemyKind.MINIBOSS and (enemy.charge > 0.0 or enemy.afterglow > 0.0)) or (enemy.kind == EnemyKind.RAZOR and enemy.action_timer <= 0.0):
+			aim_heading = enemy.aim.angle()
+		enemy.heading = lerp_angle(enemy.heading, aim_heading, 1.0 - exp(-delta * 7.0))
 		enemy.hit_flash = maxf(0.0, enemy.hit_flash - delta)
 		if distance < PLAYER_RADIUS + enemy.radius:
 			_hurt_player(enemy.contact_damage)
@@ -374,44 +441,41 @@ func _lancer_travel(enemy: Enemy, forward: Vector2, distance: float, delta: floa
 	return forward * advance + Vector2(-forward.y, forward.x) * orbit
 
 
+func _razor_travel(enemy: Enemy, forward: Vector2, delta: float) -> Vector2:
+	enemy.action_timer -= delta
+	if enemy.action_timer < -0.46:
+		enemy.action_timer = 2.1
+	if enemy.action_timer > 0.0 and enemy.action_timer < 0.36:
+		enemy.aim = forward
+		return forward * 0.15
+	if enemy.action_timer <= 0.0:
+		return enemy.aim * 2.62
+	return forward * 0.95 + forward.orthogonal() * sin(enemy.phase + _mission_time * 3.0) * 0.34
+
+
+func _minelayer_travel(enemy: Enemy, forward: Vector2, distance: float, delta: float) -> Vector2:
+	enemy.action_timer -= delta
+	if enemy.action_timer <= 0.0 and distance < 390.0:
+		var intercept := _clamp_to_arena(_player_position + _player_velocity * 0.50, MINE_RADIUS)
+		_launch_shot(ShotKind.MINE, intercept, Vector2.ZERO, 15.0, 1.55)
+		enemy.action_timer = _rng.randf_range(3.7, 4.9)
+	return forward * clampf((distance - 255.0) / 88.0, -0.65, 1.0) + forward.orthogonal() * 0.42
+
+
+func _elite_travel(enemy: Enemy, forward: Vector2, distance: float, delta: float) -> Vector2:
+	enemy.action_timer -= delta
+	if enemy.action_timer <= 0.0 and distance < 360.0:
+		for lane in [-1, 0, 1]:
+			var direction := forward.rotated(lane * 0.23)
+			_launch_shot(ShotKind.HOSTILE, enemy.position + direction * 36.0, direction * 319.0, 11.0, 1.7)
+		_fx.burst(enemy.position + forward * 39.0, SHIP_TINTS[enemy.kind], 8, 118.0, forward)
+		enemy.action_timer = _rng.randf_range(2.1, 3.0)
+	var stride := clampf((distance - 157.0) / 100.0, -0.46, 1.0)
+	return forward * stride + forward.orthogonal() * sin(_mission_time * 1.6 + enemy.phase) * 0.82
+
+
 func _step_weapons(delta: float) -> void:
-	_pulse_timer -= delta
-	_missile_timer -= delta
-	_nova_timer -= delta
-	if _pulse_timer <= 0.0:
-		var target := _closest_enemy(390.0)
-		if target != null:
-			_fire_pulse(target)
-	var missile_rank := _loadout.rank("missiles")
-	if missile_rank > 0 and _missile_timer <= 0.0:
-		var target := _closest_enemy(480.0)
-		if target != null:
-			var forward := Vector2.from_angle(_player_heading)
-			_launch_shot(ShotKind.MISSILE, _player_position - forward * 18.0, forward * 468.0,
-				29.0 + 12.0 * (missile_rank - 1), 1.8, target)
-			_missile_timer = 2.65 - 0.29 * missile_rank
-			sound_requested.emit("missile")
-	var nova_rank := _loadout.rank("nova")
-	if nova_rank > 0 and _nova_timer <= 0.0:
-		var radius := 152.0 + 17.0 * nova_rank
-		if _closest_enemy(radius) != null:
-			_nova_timer = 4.4
-			_fx.ring(_player_position, VIOLET, radius, 0.54)
-			_area_damage(_player_position, radius, 25.0 + 15.0 * (nova_rank - 1))
-			sound_requested.emit("nova")
-
-
-func _fire_pulse(target: Enemy) -> void:
-	var forward := Vector2.from_angle((target.position - _player_position).angle())
-	var right := Vector2(-forward.y, forward.x)
-	for side: int in [-1, 1]:
-		var launch := _player_position + forward * 18.0 + right * 19.0 * side
-		var velocity := launch.direction_to(target.position) * float(PULSE.projectile_speed)
-		var damage := float(PULSE.damage) + 5.0 * _loadout.rank("pulse_damage")
-		_launch_shot(ShotKind.PULSE, launch, velocity, damage, 0.63)
-	_pulse_timer = float(PULSE.interval_seconds) / pow(1.15, _loadout.rank("pulse_cadence"))
-	_firing_flash = 0.078
-	sound_requested.emit("shot")
+	_arsenal.step(self, delta)
 
 
 func _closest_enemy(max_range: float) -> Enemy:
@@ -426,8 +490,15 @@ func _closest_enemy(max_range: float) -> Enemy:
 
 
 func _launch_shot(kind: int, position: Vector2, velocity: Vector2, damage: float, life: float, target: Enemy = null) -> void:
-	if _shots.size() >= MAX_SHOTS:
+	var friendly := kind != ShotKind.HOSTILE and kind != ShotKind.MINE
+	if _shots.size() >= MAX_SHOTS or (friendly and _friendly_shots >= MAX_FRIENDLY_SHOTS):
 		return
+	if kind == ShotKind.MINE:
+		if _mine_count >= 12:
+			return
+		_mine_count += 1
+	if friendly:
+		_friendly_shots += 1
 	var shot: Shot = Shot.new() if _shot_pool.is_empty() else _shot_pool.pop_back()
 	shot.kind = kind
 	shot.position = position
@@ -442,6 +513,16 @@ func _step_shots(delta: float) -> void:
 	for index in range(_shots.size() - 1, -1, -1):
 		var shot := _shots[index]
 		shot.life -= delta
+		if shot.kind == ShotKind.MINE:
+			if shot.life <= 0.0:
+				_fx.ring(shot.position, WARM, MINE_RADIUS, 0.44)
+				_fx.burst(shot.position, WARM, 10, 162.0)
+				if shot.position.distance_squared_to(_player_position) < pow(MINE_RADIUS + PLAYER_RADIUS * 0.5, 2.0):
+					_hurt_player(shot.damage)
+				_recycle_shot(index)
+				if _ended:
+					return
+			continue
 		if shot.life <= 0.0:
 			_recycle_shot(index)
 			continue
@@ -464,29 +545,51 @@ func _step_shots(delta: float) -> void:
 		if shot.kind == ShotKind.MISSILE:
 			_fx.ring(shot.position, VIOLET, 90.0, 0.46)
 			_fx.burst(shot.position, VIOLET, 16, 200.0)
-			_area_damage(shot.position, 85.0, shot.damage)
+			var impact := shot.position
+			var velocity := shot.velocity
+			var damage := shot.damage
+			_area_damage(impact, 85.0, damage)
+			_recycle_shot(index)
+			_arsenal.missile_impact(self, impact, velocity, damage)
 		else:
 			_damage_enemy(hit, shot.damage, shot.velocity.normalized())
-		_recycle_shot(index)
+			_recycle_shot(index)
 
 
-func _target_along_segment(start: Vector2, finish: Vector2) -> int:
-	var closest := -1
-	var distance := INF
+func _target_along_segment(start: Vector2, finish: Vector2, thickness := 0.0) -> int:
+	var nearest := -1
+	var fraction := 1.0001
+	var travel := finish - start
+	var length_squared := travel.length_squared()
+	if length_squared < 0.00001:
+		return nearest
 	for index in _enemies.size():
 		var enemy := _enemies[index]
-		var point := Geometry2D.get_closest_point_to_segment(enemy.position, start, finish)
-		if point.distance_squared_to(enemy.position) > enemy.radius * enemy.radius:
+		var radius := enemy.radius + thickness
+		var center := enemy.position - start
+		var bound_x := radius + absf(travel.x)
+		var bound_y := radius + absf(travel.y)
+		if absf(center.x) > bound_x or absf(center.y) > bound_y:
 			continue
-		var contact := start.distance_squared_to(point)
-		if contact < distance:
-			distance = contact
-			closest = index
-	return closest
+		var center_fraction := center.dot(travel) / length_squared
+		var perpendicular_squared := center.length_squared() - center_fraction * center_fraction * length_squared
+		var chord_squared := radius * radius - perpendicular_squared
+		if chord_squared < 0.0:
+			continue
+		var half_chord := sqrt(chord_squared / length_squared)
+		var entry := maxf(0.0, center_fraction - half_chord)
+		if center_fraction + half_chord >= 0.0 and entry < fraction and entry <= 1.0:
+			nearest = index
+			fraction = entry
+	return nearest
 
 
 func _recycle_shot(index: int) -> void:
 	var shot := _shots[index]
+	if shot.kind == ShotKind.MINE:
+		_mine_count -= 1
+	elif shot.kind != ShotKind.HOSTILE:
+		_friendly_shots -= 1
 	shot.target = null
 	_shot_pool.append(shot)
 	_shots[index] = _shots.back()
@@ -509,8 +612,16 @@ func _damage_enemy(index: int, damage: float, direction: Vector2) -> void:
 	if enemy.hp > 0.0:
 		return
 	_kills += 1
+	if enemy.kind == EnemyKind.ELITE:
+		_recovered += 2
+	elif enemy.kind == EnemyKind.MINIBOSS:
+		_director._miniboss_defeated = true
+		_recovered += 35
+	elif enemy.kind == EnemyKind.BOSS:
+		_director._boss_defeated = true
+		_recovered += 90
 	_spawn_orb(enemy.position, enemy.xp)
-	_fx.burst(enemy.position, SHIP_TINTS[enemy.kind], 16 + enemy.kind * 4, 243.0)
+	_fx.burst(enemy.position, SHIP_TINTS[enemy.kind], mini(37, 16 + enemy.kind * 4), 243.0)
 	_fx.ring(enemy.position, SHIP_TINTS[enemy.kind], 47.0 + enemy.kind * 14.0, 0.41)
 	for shot in _shots:
 		if shot.target == enemy:
@@ -576,7 +687,7 @@ func _offer_level() -> void:
 	_level += 1
 	_xp -= _xp_goal
 	var tier := _level - 1
-	_xp_goal = 12 + 7 * tier + 2 * tier * tier
+	_xp_goal = 12 + 6 * tier + ceili(0.42 * tier * tier)
 	_pending_cards = _loadout.cards(_rng, _level)
 	_clear_pointer()
 	_publish_telemetry()
@@ -587,13 +698,35 @@ func _finish(won: bool) -> void:
 	_ended = true
 	_clear_pointer()
 	_publish_telemetry()
-	mission_ended.emit({"won": won, "seconds": _mission_time, "kills": _kills, "level": _level})
+	var reward := _recovered + floori(_kills / 12.0) + _director.wave * 3 + (60 if won else 0)
+	mission_ended.emit({
+		"won": won, "seconds": _mission_time, "kills": _kills, "level": _level,
+		"reward": reward, "boss_defeated": _director._boss_defeated,
+	})
 
 
 func _publish_telemetry() -> void:
+	var boss: Enemy
+	for enemy in _enemies:
+		if enemy.kind >= EnemyKind.MINIBOSS and (boss == null or enemy.kind > boss.kind):
+			boss = enemy
+	var warning := ""
+	if boss != null:
+		if boss.charge > 0.0:
+			warning = WaveDirector.PATTERN_NAMES[boss.pattern]
+		elif _director.arrival_notice > 0.0:
+			warning = "%s w zasięgu" % _director.boss_name(boss.kind)
+	if warning.is_empty():
+		if not _director._miniboss_spawned and _mission_time >= WaveDirector.MINIBOSS_AT - 6.0 and _mission_time < WaveDirector.MINIBOSS_AT:
+			warning = "Zbliża się Aegis"
+		elif not _director._boss_spawned and _mission_time >= WaveDirector.BOSS_AT - 7.0 and _mission_time < WaveDirector.BOSS_AT:
+			warning = "Zbliża się Leviathan"
 	telemetry.emit({
 		"hp": _hp, "max_hp": _max_hp, "xp": _xp, "xp_goal": _xp_goal, "level": _level,
-		"seconds": _mission_time, "duration": _duration, "kills": _kills
+		"seconds": _mission_time, "duration": _duration, "kills": _kills,
+		"wave": _director.wave + 1, "wave_name": WaveDirector.WAVE_NAMES[_director.wave],
+		"warning": warning, "boss_name": _director.boss_name(boss.kind) if boss else "",
+		"boss_hp": boss.hp if boss else 0.0, "boss_max_hp": boss.max_hp if boss else 0.0,
 	})
 
 
@@ -614,8 +747,10 @@ func _draw() -> void:
 	draw_rect(Rect2(ARENA.position + offset, ARENA.size), Color("#38657b80"), false, 1.6)
 	_draw_orbs(offset, frame)
 	_fx.render(self, offset, frame.grow(20.0))
-	var near_view := frame.grow(120.0)
+	var near_view := frame.grow(140.0)
 	for enemy in _enemies:
+		if enemy.kind >= EnemyKind.MINIBOSS:
+			_director.draw_telegraph(self, enemy, offset, _mission_time, enemy.kind == EnemyKind.BOSS)
 		var origin := enemy.position + offset
 		if near_view.has_point(origin):
 			_draw_enemy(enemy, origin)
@@ -623,6 +758,7 @@ func _draw() -> void:
 		var origin := shot.position + offset
 		if near_view.has_point(origin):
 			_draw_shot(shot, origin)
+	_arsenal.draw_weapons(self, offset, frame)
 	_draw_player(_player_position + offset)
 	_draw_steering()
 	if _hit_cooldown > 0.54:
@@ -684,7 +820,11 @@ func _draw_enemy(enemy: Enemy, origin: Vector2) -> void:
 	var hot := SHIP_TINTS[enemy.kind]
 	draw_set_transform(origin, enemy.heading + PI * 0.5)
 	var engine_time := _mission_time + enemy.phase
-	_fx.engine(self, Vector2(0.0, body_size.y * 0.34), body_size.x * 0.072, 13.0 + enemy.kind * 4.5, hot, engine_time)
+	_fx.engine(self, Vector2(0.0, body_size.y * 0.34), body_size.x * 0.072,
+		13.0 + enemy.kind * 4.5, hot, engine_time)
+	if enemy.kind >= EnemyKind.MINIBOSS:
+		for side in [-1, 1]:
+			_fx.engine(self, body_size * Vector2(side * 0.22, 0.32), 6.0, 32.0, hot, engine_time)
 	var tint := Color.WHITE.lerp(Color(2.0, 1.8, 1.55), enemy.hit_flash * 8.0)
 	draw_texture_rect(texture, Rect2(-body_size * 0.5, body_size), false, tint)
 	if enemy.kind == EnemyKind.LANCER and enemy.action_timer > 0.0 and enemy.action_timer < 0.29:
@@ -693,13 +833,19 @@ func _draw_enemy(enemy: Enemy, origin: Vector2) -> void:
 		draw_circle(muzzle, 11.0 * brightness, Color(WARM, 0.3), true, -1.0, true)
 		draw_circle(muzzle, 3.7 * brightness, WHITE_HOT, true, -1.0, true)
 	draw_set_transform(Vector2.ZERO)
-	if enemy.hp < enemy.max_hp:
+	if enemy.kind == EnemyKind.RAZOR and enemy.action_timer > 0.0 and enemy.action_timer < 0.36:
+		draw_line(origin + enemy.aim * 22.0, origin + enemy.aim * 73.0, Color(hot, 0.62), 2.0, true)
+	if enemy.hp < enemy.max_hp and enemy.kind < EnemyKind.MINIBOSS:
 		var line_start := origin + Vector2(-15.0, body_size.length() * 0.42)
 		draw_line(line_start, line_start + Vector2(30.0, 0.0), Color("#1a151f"), 3.0)
 		draw_line(line_start, line_start + Vector2(30.0 * enemy.hp / enemy.max_hp, 0.0), Color(hot, 0.84), 1.5)
 
 
 func _draw_shot(shot: Shot, origin: Vector2) -> void:
+	if shot.kind == ShotKind.MINE:
+		var pulse := 0.63 + 0.29 * sin(shot.life * 15.0)
+		_director.draw_zone(self, origin, MINE_RADIUS, pulse)
+		return
 	var forward := shot.velocity.normalized()
 	var tint := CYAN
 	var tail := 29.0
@@ -712,6 +858,10 @@ func _draw_shot(shot: Shot, origin: Vector2) -> void:
 		tint = VIOLET
 		tail = 40.0
 		width = 3.4
+	elif shot.kind == ShotKind.SHARD:
+		tint = Color("#efb4ff")
+		tail = 18.0
+		width = 2.9
 	draw_line(origin - forward * tail, origin + forward * 5.0, Color(tint, 0.24), width * 3.3, true)
 	draw_line(origin - forward * tail * 0.68, origin + forward * 5.0, tint, width * 1.4, true)
 	draw_line(origin - forward * tail * 0.25, origin + forward * 5.0, WHITE_HOT, width * 0.63, true)

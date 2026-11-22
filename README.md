@@ -1,6 +1,17 @@
 # Galaxy Strike: Space Survivor
 
-Pionowa gra akcji 2D w Godot 4.7.2 stable. W misji **Peryhelium** pilotujesz myśliwiec Peregrine i próbujesz przeżyć cztery minuty. Statek sam atakuje wrogów w zasięgu. Zdobywaj rdzenie XP pozostające po zestrzeleniach i wybieraj jedno z trzech ulepszeń przy każdym awansie. Wybór karty przywraca też do 10 HP. Rakiety Widmo i Pierścień jonowy odblokowują nowe automatyczne ataki.
+Pionowa gra akcji 2D w Godot 4.7.2 stable. W misji **Peryhelium** pilotujesz myśliwiec Peregrine przez dziesięć minut. Przetrwaj osiem fal i zniszcz Leviathana przed upływem czasu. Aegis pojawia się po 3:30, a Leviathan po 8:00. Oba okręty zapowiadają salwę pierścieniową, cięcie osiowe i pola detonacji. Zestrzelenia, fale i bossowie nagradzają rdzeniami odzysku, które są zapisywane w lokalnym profilu po zakończeniu lotu.
+
+Statek sam atakuje. Zbieraj XP i przy każdym awansie wybieraj jedną z trzech kart. Talia zawiera sześć kart uzbrojenia, trzy ewolucje oraz trzy systemy pokładowe. Wybór karty przywraca też do 10 HP.
+
+| Uzbrojenie | Działanie |
+| --- | --- |
+| Pulse Cannon | Salwa, która z poziomem zyskuje dodatkowe pociski. Ogień krzyżowy dodaje okresowy atak w czterech kierunkach. |
+| Homing Missiles | Rakiety naprowadzane z wybuchem obszarowym. Głowica kasetowa rozrzuca rażące odłamki. |
+| Laser Beam | Ciągła wiązka zadaje obrażenia na całej linii w trakcie emisji. |
+| Plasma Orbitals | Krążące wokół statku ładunki uszkadzają wrogów na orbicie. |
+| Tesla Chain | Łuk przeskakuje między celami. Ewolucja uruchamia dodatkowe odgałęzienia. |
+| Drone Swarm | Drony eskorty wyszukują i atakują cele wokół statku. |
 
 ## Uruchomienie
 
@@ -34,7 +45,7 @@ bash tests/run.sh --full-mission
 bash tests/capture.sh /sciezka/do/zrzutow
 ```
 
-Pierwsze polecenie importuje projekt, testuje normalną scenę wejściową i prowadzi statek skryptowanym sterowaniem przez czterominutową misję. Drugie wymaga aktywnego serwera graficznego. Zapisuje klatki wyrenderowane w Godot w rozdzielczościach 720 × 1280, 1080 × 1920 i 1080 × 2400.
+Pierwsze polecenie importuje projekt, sprawdza uzbrojenie i wzorce obu bossów, po czym prowadzi statek skryptowanym sterowaniem przez dziesięciominutową misję uruchomioną z menu. Testy wzorców używają osobnych prób, które ustawiają zegar tuż przed ostrzeżeniem o pojawieniu się bossa. Drugie polecenie wymaga aktywnego serwera graficznego. Zapisuje klatki wyrenderowane w Godot w rozdzielczościach 720 × 1280, 1080 × 1920 i 1080 × 2400.
 
 ## Architektura
 

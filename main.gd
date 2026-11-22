@@ -3,6 +3,7 @@ extends Node
 const Arena := preload("res://combat/arena.gd")
 const Interface := preload("res://ui/interface.gd")
 const FlightAudio := preload("res://audio/flight_audio.gd")
+const PROFILE_PATH := "user://flight_profile.cfg"
 
 var arena: Arena
 var ui: Interface
@@ -100,13 +101,11 @@ func _show_upgrades(cards: Array[Dictionary]) -> void:
 
 
 func _select_upgrade(id: String) -> void:
-	if phase != "upgrade":
+	if phase != "upgrade" or not arena.apply_upgrade(id):
 		return
 	phase = "combat"
 	ui.show_hud()
-	arena.apply_upgrade(id)
-	if phase == "combat":
-		arena.set_suspended(false)
+	arena.set_suspended(false)
 
 
 func _finish_mission(result: Dictionary) -> void:
@@ -115,7 +114,22 @@ func _finish_mission(result: Dictionary) -> void:
 	phase = "result"
 	arena.set_suspended(true)
 	flight_audio.play_event("victory" if result.get("won", false) else "defeat")
+	_credit_salvage(int(result.get("reward", 0)))
 	ui.show_result(result)
+
+
+func _credit_salvage(count: int) -> void:
+	if count <= 0:
+		return
+	var profile := ConfigFile.new()
+	var read_status := profile.load(PROFILE_PATH)
+	if read_status != OK and read_status != ERR_FILE_NOT_FOUND:
+		push_warning("Nie udało się odczytać profilu lotu.")
+		return
+	var salvage := int(profile.get_value("pilot", "salvage", 0))
+	profile.set_value("pilot", "salvage", salvage + count)
+	if profile.save(PROFILE_PATH) != OK:
+		push_warning("Nie udało się zapisać rdzeni odzysku.")
 
 
 func _discard_arena() -> void:
