@@ -36,12 +36,14 @@ Asterion i trzy tła powstały dla tego projektu. Wykorzystano też cztery istni
 | Próg Helionu | 57,95 s | 5 | 75 | 7 | 19 198 |
 
 - **Godot 4.7.2 stable, Linux, kampania.** Skrypt prowadził pilota przez wejścia klawiatury i kolizje. Ukończył trzy loty przez zwykły przepływ gry. Asterion odpalił trzy wzorce, a wynik wypłacił nagrodę i zapisał rekord. Czasy dotyczą automatycznego pilota i czasu symulacji.
-- **Regresja kampanii.** Test sprawdził względne przeciąganie i drugi palec, ruch klawiaturą, ograniczenia pola, kolizje kadłuba i pocisków, wszystkie Power-Upy, liczby emiterów, obrażenia obszarowe, naprowadzanie oraz przebijanie wiązką. Sprawdził również pauzę, restart, śmierć, odmowę ożywienia, migrację v3, odczyt rekordu i nagrody reklamowe w symulacji.
+- **Regresja kampanii.** Test sprawdził względne przeciąganie, ruch klawiaturą, ograniczenia pola, trafienia w kadłub pilota i jednostki wroga, wszystkie Power-Upy, liczby emiterów, obrażenia obszarowe, naprowadzanie oraz przebijanie wiązką. Sprawdził również pauzę, restart, śmierć, odmowę ożywienia, migrację v3, odczyt rekordu i nagrody reklamowe w symulacji.
 - **Regresja Survivor i portfela.** Dotychczasowe testy Godot sprawdziły uzbrojenie, bossów, progresję, ustawienia i audio, handel oraz rozliczenie portfela. Skryptowany pilot wygrał dziesięciominutową misję Survivor. Dziesięć testów serwera portfela w Pythonie przeszło.
 - **Render z Godot.** Zrzuty menu, kampanii, trzech lotów, Power-Upu, faz i zniszczenia Asteriona oraz wyniku mają dokładnie 720×1280, 1080×1920 i 1080×2400 px. Powtarzalna próba renderu ustawia wybrane fale, wyposażenie i HP bossa dla ujęć. Pełna próba kampanii odtwarza te zdarzenia rozgrywką bez ustawiania HP bossa.
 - **APK.** Eksport debug przez Godot, Gradle i SDK 36. Statycznie zweryfikowano podpis, wyrównanie 16 KB, CRC, target API 36, min API 24, arm64-v8a, x86_64, skrypty i tekstury nowej kampanii. Zasoby wyciągnięte z APK uruchomiły scenę startową w Godot na Linuksie. Manifest zawiera tryb `test`, wyłączone płatności i pusty adres serwera zakupów.
 
 Artefakt testowy jest dostępny na gałęzi dystrybucyjnej. [Pobierz APK debug](https://github.com/kogonowski52-png/SpaceSurvivor/raw/refs/heads/apk-vertical-0.8.0-dev/GalaxyStrike-Vertical-0.8.0-dev.apk) · [Suma SHA-256](https://github.com/kogonowski52-png/SpaceSurvivor/raw/refs/heads/apk-vertical-0.8.0-dev/GalaxyStrike-Vertical-0.8.0-dev.apk.sha256)
+
+Pakiet QA zawiera 36 klatek PNG, porównanie trzech formatów i logi testów. [Podgląd kampanii](https://github.com/kogonowski52-png/SpaceSurvivor/blob/apk-vertical-0.8.0-dev/Przebieg-kampanii.jpg) · [Pełny pakiet QA](https://github.com/kogonowski52-png/SpaceSurvivor/raw/refs/heads/apk-vertical-0.8.0-dev/GalaxyStrike-Vertical-Dowody-QA.zip)
 
 ### Reprodukcja
 
