@@ -1,5 +1,7 @@
 # Ekonomia Galaxy Strike 0.5
 
+Poniższy przewodnik opisuje symulację na komputerze oraz zawartość ofert. Android od wersji 0.6 używa SDK Google i własnego weryfikatora zakupów. [Integracja Android i konfiguracja właściciela](ANDROID_INTEGRATION.md)
+
 Sklep jest dostępny z menu głównego i hangaru. Zakupy oznaczone **Symuluj zakup** oraz przyciski **Reklama testowa** korzystają z lokalnych adapterów. Kompilacja testowa nie pobiera pieniędzy, nie wyświetla reklam i nie łączy się z Google. Własny portfel umożliwia zakup części przedmiotów, a skórki można założyć z karty posiadanego produktu. Zmiana poszycia jest widoczna w hangarze i w walce.
 
 ## Portfel i oferta
@@ -34,13 +36,6 @@ Archiwum Helionu wykorzystuje trzy progi ukończonych lotów, po 1, 3 i 6. Każd
 `PilotProgression` wczytuje zapis v2, zachowuje pole `coins` jako Credits i inicjuje portfel Crystals w wersji 3. Każda transakcja portfela zaczyna od kopii danych profilu. Nagroda i identyfikator rozliczenia trafiają w jednym zapisie do nowej zweryfikowanej rewizji. Błąd zapisu zostawia aktywną rewizję bez zmiany. Powtórzony token zakupu jest wykrywany po skrócie powiązanym z produktem. Dodatkowe blokady dotyczą jednorazowych produktów, progów sezonu, daty bonusu oraz identyfikatora lotu. Lokalny dziennik zamówień testowych jest osobny od profilu, więc można przywrócić zamówienie po przerwaniu rozliczenia. Przywracanie symulacji obejmuje tę instalację.
 
 `BillingService` i `AdService` dopuszczają po jednym aktywnym żądaniu odpowiedniego typu. Adapter odsyła identyfikator żądania. Spóźnione i powtórzone callbacki są ignorowane, a brak odpowiedzi przez 35 sekund pokazuje komunikat o błędzie sieci. Serwis zakupów przed przyznaniem nagrody sprawdza stan, SKU i potwierdzenie w adapterze. Kwoty nagród pochodzą z katalogu gry. [Profil](data/pilot_progression.gd) · [Portfel](data/store/wallet.gd) · [Katalog](data/store/commerce_catalog.gd)
-
-## Podłączenie Google Play Billing i AdMob
-
-1. Zarejestruj wymienione produkty jednorazowe w Play Console. Adapter Androida powinien pobierać wersję językową i cenę z `ProductDetails`, uruchamiać zakup dla wybranego SKU oraz przekazywać `BillingService` odpowiedzi na głównym wątku z pierwotnym identyfikatorem żądania. Odpytywanie `queryPurchasesAsync` po wznowieniu i przy przywracaniu pomoże odnaleźć zakupy oczekujące oraz zatwierdzone podczas utraty połączenia. Przyciski zmieniające stan symulacji pozostają w kompilacji testowej. [Interfejs adaptera zakupów](commerce/billing_adapter.gd)
-2. Dla zakupów rzeczywistych serwer powiąże token z kontem gracza oraz zweryfikuje w Google Play Developer API nazwę pakietu, SKU i stan `PURCHASED`. Potwierdzenie przyznania i aktualizacja portfela powinny być jedną idempotentną transakcją serwera. Potwierdzenie zakupu jednorazowego lub zużycie zakupu Crystals następuje po zapisaniu wyniku rozliczenia. Obecne `BillingService` przyznaje wyłącznie zweryfikowane nagrody testowe. Aplikacja rzeczywista powinna pobierać rozliczone uprawnienia i saldo z serwera. [Serwis zakupów](commerce/billing_service.gd)
-3. Adapter AdMob użyje osobnych jednostek `RewardedAd` dla wyniku, ożywienia i bonusu. Zwróci ukończenie wyłącznie z `OnUserEarnedRewardListener` dla bieżącego żądania. Zamknięcie przed odebraniem nagrody zwróci anulowanie. W rzeczywistej ekonomii weryfikacja serwerowa AdMob z identyfikatorem gracza i typu nagrody pozwoli rozliczyć zweryfikowane zdarzenie raz. Przypisanie daty lub lotu do tego zdarzenia powinno odbywać się po stronie serwera. [Interfejs adaptera reklam](commerce/ad_adapter.gd)
-4. Podłączenie SDK wymaga skonfigurowania wtyczki Androida, aplikacji i jednostek AdMob, produktów Play Console oraz zgody na dostęp do sieci w presecie Android. Obecny preset jest offline. Do tego czasu do obsługi scenariuszy służą adaptery testowe i lokalny zapis, który może edytować właściciel urządzenia.
 
 ## Uruchomienie testów
 

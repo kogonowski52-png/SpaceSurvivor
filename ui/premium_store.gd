@@ -22,9 +22,11 @@ const AD_CASES := {
 var current_tab := "featured"
 var _data: Dictionary
 var _options_open := false
+var _account_open := false
 var _heading := FontVariation.new()
 var _coins: Label
 var _crystals: Label
+var _platform_notice: Label
 var _status: Label
 var _status_plate: Control
 var _scroll: ScrollContainer
@@ -73,7 +75,7 @@ func _ready() -> void:
 	_crystals = _balance(header, "CRYSTALS", Palette.VIOLET)
 	_label(shell, "SKLEP", 40, Palette.TEXT, true)
 	var notice := _panel(shell, Palette.AMBER, 9)
-	_label(notice, "TRYB TESTOWY · bez płatności i prawdziwych reklam", 16, Palette.AMBER)
+	_platform_notice = _label(notice, "", 16, Palette.AMBER)
 	var tabs := _row(shell, 5)
 	for id: String in Offers.TABS:
 		var button := _button(tabs, "StoreTab_" + id, Offers.TABS[id], _switch_tab.bind(id), Palette.CYAN)
@@ -102,6 +104,7 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 	var profile: Dictionary = data.profile
 	_coins.text = str(profile.coins)
 	_crystals.text = str(profile.crystals)
+	_platform_notice.text = "TRYB TESTOWY · symulacja zakupów i reklam" if data.simulation else "GOOGLE PLAY · ceny z katalogu urządzenia"
 	_back.disabled = data.ad_busy
 	_status.text = str(data.get("message", ""))
 	_status_plate.visible = not _status.text.is_empty()
@@ -126,6 +129,10 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 		"skins": "Poszycia floty", "gear": "Pakiety modułów", "season": "Archiwum Helionu",
 	}
 	_label(body, subtitle[current_tab], 27, Palette.TEXT, true)
+	if not data.simulation and not data.checkout_ready and current_tab in ["featured", "crystals", "season"]:
+		_label(body, "Zakupy wymagają połączenia konta z serwerem gry.", 17, Palette.AMBER)
+	elif data.play_test and current_tab in ["featured", "crystals", "season"]:
+		_label(body, "Przed zatwierdzeniem wybierz kartę testową Google Play.", 17, Palette.AMBER)
 	if current_tab == "crystals":
 		_label(body, "Crystals zdobędziesz też za zwycięstwa, kalendarz i darmowy tor Helionu.", 18, Palette.MUTED)
 	for id: String in Offers.OFFERS:
@@ -170,7 +177,8 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(details)
 	_label(details, str(offer.subtitle).to_upper(), 13, art_tint, true)
-	_label(details, offer.title, 25, Palette.TEXT, true)
+	var listing: Dictionary = _data.catalog.get(offer.get("sku", ""), {})
+	_label(details, listing.get("title", offer.title), 25, Palette.TEXT, true)
 	_label(details, offer.description, 18, Palette.MUTED)
 
 	var profile: Dictionary = _data.profile
@@ -184,8 +192,11 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 		_label(card, "W TWOJEJ KOLEKCJI", 15, Palette.SUCCESS, true)
 	elif offer.kind == "play":
 		var pending: bool = id in _data.pending
-		_button(card, "BuyOffer_" + id, "ZAMÓWIENIE OCZEKUJE" if pending else "SYMULUJ ZAKUP",
-			_action.bind("billing", id), art_tint, not pending).disabled = pending or _data.billing_busy
+		var price: String = listing.get("price", "")
+		var available: bool = _data.simulation or (_data.checkout_ready and not price.is_empty())
+		var purchase_label := "SYMULUJ ZAKUP" if _data.simulation else ("CENA NIEDOSTĘPNA" if price.is_empty() else "KUP · " + price)
+		_button(card, "BuyOffer_" + id, "ZAMÓWIENIE OCZEKUJE" if pending else purchase_label,
+			_action.bind("billing", id), art_tint, available and not pending).disabled = pending or _data.billing_busy or not available
 	else:
 		if offer.has("items"):
 			var collected: int = offer.items.filter(func(item: String) -> bool: return item in profile.inventory).size()
@@ -200,11 +211,15 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 func _featured_tools(parent: Container) -> void:
 	var bonus := _panel(parent, Palette.AMBER, 12)
 	_label(bonus, "Bonus dzienny · +150 Credits", 23, Palette.TEXT, true)
-	_label(bonus, "Jedna dobrowolna reklama testowa dziennie.", 18, Palette.MUTED)
-	_button(bonus, "BonusCreditsButton", "ODBIERZ · REKLAMA TESTOWA" if _data.bonus else "ODEBRANO DZISIAJ",
+	_label(bonus, "Jedna dobrowolna reklama dziennie.", 18, Palette.MUTED)
+	_button(bonus, "BonusCreditsButton", "ODBIERZ · " + str(_data.ad_label) if _data.bonus else "ODEBRANO DZISIAJ",
 		_action.bind("bonus", ""), Palette.AMBER).disabled = _data.ad_busy or not _data.bonus
 	var tools := _panel(parent, Palette.OUTLINE, 12)
-	_button(tools, "RestorePurchasesButton", "PRZYWRÓĆ ZAKUPY TESTOWE", _action.bind("restore", ""), Palette.CYAN).disabled = _data.billing_busy
+	var restore_label := "PRZYWRÓĆ ZAKUPY TESTOWE" if _data.simulation else "PRZYWRÓĆ ZAKUPY GOOGLE PLAY"
+	_button(tools, "RestorePurchasesButton", restore_label, _action.bind("restore", ""), Palette.CYAN).disabled = _data.billing_busy
+	if not _data.simulation:
+		_account(tools)
+		return
 	if not _data.pending.is_empty():
 		_button(tools, "CompletePendingButton", "ZATWIERDŹ OCZEKUJĄCE (TEST)",
 			_action.bind("pending", ""), Palette.VIOLET).disabled = _data.billing_busy
@@ -213,6 +228,49 @@ func _featured_tools(parent: Container) -> void:
 	if _options_open:
 		_scenario(tools, "Scenariusz zakupu", "BillingScenario", "billing_case", BILLING_CASES, _data.billing_case)
 		_scenario(tools, "Scenariusz reklamy", "AdScenario", "ad_case", AD_CASES, _data.ad_case)
+
+
+func _account(parent: VBoxContainer) -> void:
+	if not _data.can_connect_account:
+		return
+	var label := "ZAKTUALIZUJ KOD KONTA" if _data.checkout_ready else "POŁĄCZ KONTO ZAKUPÓW"
+	_button(parent, "PlayAccountButton", "ZAMKNIJ" if _account_open else label, _toggle_account, Palette.CYAN).disabled = _data.billing_busy
+	if not _account_open:
+		return
+	var token := LineEdit.new()
+	token.name = "PlayAccountCode"
+	token.secret = true
+	token.placeholder_text = "Kod połączenia konta"
+	token.max_length = 256
+	token.editable = not _data.billing_busy
+	token.custom_minimum_size.y = 52
+	token.add_theme_font_override("font", Body)
+	token.add_theme_font_size_override("font_size", 19)
+	token.add_theme_stylebox_override("normal", Palette.plate(Palette.STEEL, Palette.OUTLINE, 8, 11.0))
+	parent.add_child(token)
+	var connect_button := _button(parent, "ConfirmPlayAccount", "POŁĄCZ", _submit_account.bind(token), Palette.CYAN, true)
+	connect_button.disabled = true
+	token.text_changed.connect(func(value: String) -> void: connect_button.disabled = value.strip_edges().length() < 24)
+	token.text_submitted.connect(func(_value: String) -> void:
+		if not connect_button.disabled:
+			_submit_account(token))
+
+
+func _toggle_account() -> void:
+	_account_open = not _account_open
+	refresh(_data)
+	if _account_open:
+		var field := find_child("PlayAccountCode", true, false) as LineEdit
+		if field != null:
+			_scroll.ensure_control_visible.call_deferred(field)
+			field.grab_focus.call_deferred()
+
+
+func _submit_account(field: LineEdit) -> void:
+	var token := field.text.strip_edges()
+	field.clear()
+	_account_open = false
+	_action("account", token)
 
 
 func _season(parent: Container) -> void:

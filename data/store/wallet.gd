@@ -31,7 +31,19 @@ static func redeem_play(draft: Dictionary, id: String, token: String) -> Diction
 	var offer: Dictionary = Offers.OFFERS.get(id, {})
 	if offer.get("kind") != "play" or not token.begins_with("gs-test-") or token.length() > 128:
 		return failure("invalid", "Potwierdzenie zakupu jest nieprawidłowe.")
-	var key := "test:" + token.sha256_text()
+	return _redeem(draft, id, offer, "test:" + token.sha256_text(), false, "Zakup testowy rozliczony")
+
+
+static func redeem_verified_play(draft: Dictionary, id: String, delivery: String, restore: bool) -> Dictionary:
+	var offer: Dictionary = Offers.OFFERS.get(id, {})
+	if offer.get("kind") != "play" or delivery.length() != 64 or not delivery.is_valid_hex_number():
+		return failure("invalid", "Identyfikator rozliczenia Google Play jest nieprawidłowy.")
+	if restore and offer.product_type != "non_consumable":
+		return failure("invalid", "Wypłacona waluta nie podlega ponownemu przyznaniu.")
+	return _redeem(draft, id, offer, "play:" + delivery, restore, "Przywrócono" if restore else "Zakup rozliczony")
+
+
+static func _redeem(draft: Dictionary, id: String, offer: Dictionary, key: String, restore: bool, action: String) -> Dictionary:
 	if draft.commerce.receipts.has(key):
 		if draft.commerce.receipts[key] != id:
 			return failure("invalid", "Potwierdzenie należy do innego produktu.")
@@ -41,8 +53,11 @@ static func redeem_play(draft: Dictionary, id: String, token: String) -> Diction
 		if id in draft.commerce.entitlements:
 			return {"ok": true, "changed": true, "state": "duplicate", "message": "Produkt jest już na koncie."}
 		draft.commerce.entitlements.append(id)
-	_grant(draft, offer)
-	return success("Zakup testowy rozliczony · %s" % offer.title)
+	if restore:
+		_grant(draft, {"skin": offer.get("skin", "")})
+	else:
+		_grant(draft, offer)
+	return success("%s · %s" % [action, offer.title])
 
 
 static func set_skin(draft: Dictionary, id: String, unlocked: Array) -> Dictionary:

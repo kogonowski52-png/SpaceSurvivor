@@ -68,7 +68,7 @@ func load_profile() -> void:
 			_message = "Odzyskano ostatnią poprawną kopię profilu."
 	elif slots_present > 0:
 		_message = "Brak poprawnej kopii profilu. Wczytano ustawienia początkowe."
-	elif FileAccess.file_exists(legacy_path):
+	elif not legacy_path.is_empty() and FileAccess.file_exists(legacy_path):
 		var legacy := ConfigFile.new()
 		if legacy.load(legacy_path) == OK:
 			var imported := _data.duplicate(true)
@@ -278,6 +278,10 @@ func claim_season(id: String) -> Dictionary:
 
 func redeem_test_order(id: String, verified_token: String) -> Dictionary:
 	return _wallet_transaction(Wallet.redeem_play.bind(id, verified_token))
+
+
+func redeem_verified_order(id: String, delivery: String, restore: bool) -> Dictionary:
+	return _wallet_transaction(Wallet.redeem_verified_play.bind(id, delivery, restore))
 
 
 func ad_day() -> String:
@@ -517,7 +521,7 @@ func _restore_wallet(profile: Dictionary, source: Dictionary) -> void:
 	for key: Variant in receipts:
 		if key is String and key.length() <= 72 and receipts[key] is String:
 			var value: String = receipts[key]
-			if (key.begins_with("test:") and Offers.OFFERS.has(value)) or value in ["revive", "flight"]:
+			if ((key.begins_with("test:") or key.begins_with("play:")) and Offers.OFFERS.has(value)) or value in ["revive", "flight"]:
 				wallet.receipts[key] = value
 	wallet.bonus_day = _date(source.get("bonus_day"))
 	var flight := _dictionary(source.get("flight"))

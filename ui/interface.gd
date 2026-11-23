@@ -34,6 +34,8 @@ var _detail := FontVariation.new()
 var _menu: Control
 var _hangar: Hangar
 var _store: Store
+var ad_label := "REKLAMA TESTOWA"
+var ads_simulated := true
 var _hud: Control
 var _modal: Control
 var _pause_button: Button
@@ -257,10 +259,11 @@ func show_upgrades(cards: Array[Dictionary]) -> void:
 func show_revive(busy: bool, message: String) -> void:
 	var stack := _modal_stack("ReviveOverlay", Palette.VIOLET, 0.76)
 	_heading(stack, "SYGNAŁ AWARYJNY", "Przywróć połowę wytrzymałości i kontynuuj ten sam lot. Ożywienie jest dostępne raz na misję.", Palette.VIOLET, "salvage")
-	_body(stack, "Reklama testowa jest symulowana.", 18, Palette.AMBER)
+	if ads_simulated:
+		_body(stack, "Reklama testowa jest symulowana.", 18, Palette.AMBER)
 	if not message.is_empty():
 		_body(stack, message, 18, Palette.MUTED)
-	var revive := _button(stack, "ReviveAdButton", "OŻYW · REKLAMA TESTOWA", rewarded_ad_requested.emit.bind("revive"), true)
+	var revive := _button(stack, "ReviveAdButton", "OŻYW · " + ad_label, rewarded_ad_requested.emit.bind("revive"), true)
 	revive.disabled = busy
 	_button(stack, "DeclineReviveButton", "ZAKOŃCZ LOT", revive_declined.emit).disabled = busy
 
@@ -310,7 +313,7 @@ func show_result(data: Dictionary) -> void:
 		var total := _tag(reward, "+%d" % int(data["reward"]), Palette.AMBER, 27)
 		total.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if data.get("double_available", false):
-		var double_reward := _button(stack, "DoubleRewardButton", "PODWÓJ WYPŁATĘ · REKLAMA TESTOWA",
+		var double_reward := _button(stack, "DoubleRewardButton", "PODWÓJ WYPŁATĘ · " + ad_label,
 			rewarded_ad_requested.emit.bind("double"))
 		double_reward.add_theme_font_size_override("font_size", 16)
 		double_reward.disabled = data.get("ad_busy", false)

@@ -5,14 +5,17 @@ signal mix_previewed(values: Vector3)
 signal effects_sample_requested
 signal confirmed(values: Vector3)
 signal cancelled
+signal privacy_requested
 
 const Palette := preload("res://ui/palette.gd")
 const Display := preload("res://assets/fonts/Oxanium.ttf")
 const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
 
 var initial_mix := Vector3(0.90, 0.65, 0.80)
+var privacy_required := false
 var _values := Vector3.ZERO
 var _feedback: Label
+var _privacy_button: Button
 var _display := FontVariation.new()
 
 
@@ -53,6 +56,8 @@ func _ready() -> void:
 	var master := _channel(column, "MasterVolume", "Głośność główna", 0)
 	_channel(column, "MusicVolume", "Muzyka", 1)
 	_channel(column, "EffectsVolume", "Efekty dźwiękowe", 2)
+	_privacy_button = _button(column, "PrivacyOptionsButton", "OPCJE PRYWATNOŚCI REKLAM", false, privacy_requested.emit)
+	_privacy_button.visible = privacy_required
 
 	_feedback = _label("", 17, Palette.DANGER, Body)
 	_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -72,6 +77,13 @@ func _ready() -> void:
 func show_save_error() -> void:
 	_feedback.text = "Nie udało się zapisać ustawień. Spróbuj ponownie."
 	_feedback.show()
+
+
+func update_privacy(required: bool, message: String) -> void:
+	privacy_required = required
+	_privacy_button.visible = required
+	_feedback.text = message
+	_feedback.visible = not message.is_empty()
 
 
 func _channel(parent: VBoxContainer, id: String, title: String, axis: int) -> HSlider:
@@ -119,7 +131,7 @@ func _channel(parent: VBoxContainer, id: String, title: String, axis: int) -> HS
 	return slider
 
 
-func _button(parent: Container, id: String, title: String, primary: bool, action: Callable) -> void:
+func _button(parent: Container, id: String, title: String, primary: bool, action: Callable) -> Button:
 	var button := Button.new()
 	button.name = id
 	button.text = title
@@ -145,6 +157,7 @@ func _button(parent: Container, id: String, title: String, primary: bool, action
 	button.add_theme_stylebox_override("focus", focus)
 	button.pressed.connect(action)
 	parent.add_child(button)
+	return button
 
 
 func _label(title: String, font_size: int, color: Color, font: Font) -> Label:

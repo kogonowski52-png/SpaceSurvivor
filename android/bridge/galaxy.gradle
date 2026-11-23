@@ -1,0 +1,41 @@
+// Applied to the Godot 4.7.2 Android export template by tools/prepare_android.sh.
+def sampleApp = 'ca-app-pub-3940256099942544~3347511713'
+def admobApp = System.getenv('GALAXY_ADMOB_APP_ID') ?: sampleApp
+def placements = ['bonus', 'double', 'revive']
+def unitIds = placements.collectEntries { placement ->
+    [(placement): System.getenv('GALAXY_ADMOB_REWARDED_' + placement.toUpperCase(Locale.ROOT)) ?: '']
+}
+if (!(admobApp ==~ /ca-app-pub-[0-9]+~[0-9]+/)) {
+    throw new GradleException('Invalid GALAXY_ADMOB_APP_ID')
+}
+if (admobApp != sampleApp && !unitIds.values().every { it ==~ /ca-app-pub-[0-9]+\/[0-9]+/ }) {
+    throw new GradleException('Configure all three Rewarded units with a live AdMob App ID')
+}
+def purchaseServer = System.getenv('GALAXY_PURCHASE_SERVER') ?: ''
+def playMode = System.getenv('GALAXY_PLAY_MODE') ?: 'test'
+if (!(playMode in ['test', 'live'])) {
+    throw new GradleException('GALAXY_PLAY_MODE must be test or live')
+}
+if (purchaseServer && !(purchaseServer ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[A-Za-z0-9_\/-]+)?\/?/)) {
+    throw new GradleException('GALAXY_PURCHASE_SERVER must be an HTTPS origin or base path')
+}
+
+android {
+    sourceSets.main.java.srcDir(rootProject.file('../bridge/src'))
+    defaultConfig {
+        manifestPlaceholders.putAll([
+            galaxyAdmobAppId: admobApp,
+            galaxyRewardedBonus: unitIds.bonus,
+            galaxyRewardedDouble: unitIds.double,
+            galaxyRewardedRevive: unitIds.revive,
+            galaxyPurchaseServer: purchaseServer,
+            galaxyPlayMode: playMode,
+        ])
+    }
+}
+
+dependencies {
+    implementation 'com.google.android.gms:play-services-ads:25.5.0'
+    implementation 'com.google.android.ump:user-messaging-platform:4.0.0'
+    implementation 'com.android.billingclient:billing:9.1.0'
+}

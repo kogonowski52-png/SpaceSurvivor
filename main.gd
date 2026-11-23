@@ -11,6 +11,8 @@ const BillingService := preload("res://commerce/billing_service.gd")
 const TestBillingAdapter := preload("res://commerce/test_billing_adapter.gd")
 const AdService := preload("res://commerce/ad_service.gd")
 const TestAdAdapter := preload("res://commerce/test_ad_adapter.gd")
+const AndroidBillingAdapter := preload("res://commerce/android_billing_adapter.gd")
+const AndroidAdAdapter := preload("res://commerce/android_ad_adapter.gd")
 
 var arena: Arena
 var ui: Interface
@@ -33,9 +35,17 @@ var _store_notice := ""
 var _flight_id := ""
 var _result: Dictionary
 var _ad_message := ""
+var _play_test := false
 
 
 func _ready() -> void:
+	if OS.has_feature("android"):
+		# Android builds before 0.6 carried simulated purchases. Keep those saves separate.
+		var bridge := Engine.get_singleton("GalaxyCommerce") if Engine.has_singleton("GalaxyCommerce") else null
+		var live: bool = bridge != null and bridge.playMode() == "live"
+		_play_test = not live
+		progression.save_path = "user://play_progress" if live else "user://play_debug_progress"
+		progression.legacy_path = ""
 	progression.load_profile()
 	mix_preferences.load_settings()
 	flight_audio = FlightAudio.new()
@@ -236,18 +246,26 @@ func _finish_mission(result: Dictionary) -> void:
 
 
 func _setup_commerce() -> void:
-	test_billing = TestBillingAdapter.new()
-	test_billing.ledger_path = billing_ledger_path
 	billing = BillingService.new()
 	add_child(billing)
-	billing.configure(progression, test_billing)
 	billing.status_changed.connect(_shop_status)
-	test_ads = TestAdAdapter.new()
+	billing.catalog_changed.connect(_refresh_store)
 	ads = AdService.new()
 	add_child(ads)
-	ads.configure(test_ads)
 	ads.status_changed.connect(_ad_status)
 	ads.reward_ready.connect(_credit_ad)
+	ads.privacy_changed.connect(_ad_privacy_changed)
+	if OS.has_feature("android"):
+		billing.configure(progression, AndroidBillingAdapter.new())
+		ads.configure(AndroidAdAdapter.new())
+	else:
+		test_billing = TestBillingAdapter.new()
+		test_billing.ledger_path = billing_ledger_path
+		billing.configure(progression, test_billing)
+		test_ads = TestAdAdapter.new()
+		ads.configure(test_ads)
+	ui.ad_label = ads.label()
+	ui.ads_simulated = ads.adapter.is_test()
 
 
 func _open_store() -> void:
@@ -258,6 +276,7 @@ func _open_store() -> void:
 	phase = "store"
 	flight_audio.set_scene(phase)
 	flight_audio.play_event("navigation")
+	billing.adapter.refresh_catalog()
 	_refresh_store()
 
 
@@ -283,7 +302,12 @@ func _refresh_store() -> void:
 		"profile": progression.snapshot().profile,
 		"bonus": progression.ad_eligible("bonus", progression.ad_day()),
 		"pending": pending, "ad_busy": ads.busy(), "billing_busy": billing.busy(),
-		"billing_case": test_billing.scenario, "ad_case": test_ads.scenario,
+		"simulation": billing.adapter.is_test(), "ad_label": ads.label(),
+		"catalog": billing.adapter.catalog(), "checkout_ready": billing.adapter.online_ready(),
+		"can_connect_account": billing.adapter.can_connect_account(),
+		"play_test": _play_test,
+		"billing_case": test_billing.scenario if test_billing != null else "",
+		"ad_case": test_ads.scenario if test_ads != null else "",
 		"state": _store_state, "message": _store_notice,
 	})
 
@@ -298,6 +322,8 @@ func _store_action(action: String, value: String) -> void:
 			billing.buy(value)
 		"restore", "pending":
 			billing.restore(action == "pending")
+		"account":
+			billing.connect_account(value)
 		"wallet":
 			_show_shop_outcome(progression.shop_buy(value))
 		"skin":
@@ -307,11 +333,11 @@ func _store_action(action: String, value: String) -> void:
 		"bonus":
 			_request_ad("bonus")
 		"billing_case":
-			if value in ["success", "cancelled", "error", "pending", "network_error", "unavailable", "repeat"]:
+			if test_billing != null and value in ["success", "cancelled", "error", "pending", "network_error", "unavailable", "repeat"]:
 				test_billing.scenario = value
 				_refresh_store()
 		"ad_case":
-			if value in ["rewarded", "cancelled", "network_error", "unavailable", "repeat"]:
+			if test_ads != null and value in ["rewarded", "cancelled", "network_error", "unavailable", "repeat"]:
 				test_ads.scenario = value
 				_refresh_store()
 
@@ -414,11 +440,18 @@ func _open_settings() -> void:
 	_settings = AudioSettings.new()
 	_settings.name = "AudioSettings"
 	_settings.initial_mix = mix_preferences.levels
+	_settings.privacy_required = ads.privacy_required
 	_settings.mix_previewed.connect(_preview_audio)
+	_settings.privacy_requested.connect(ads.show_privacy)
 	_settings.effects_sample_requested.connect(flight_audio.play_event.bind("equip"))
 	_settings.confirmed.connect(_confirm_settings)
 	_settings.cancelled.connect(_cancel_settings)
 	ui.get_parent().add_child(_settings)
+
+
+func _ad_privacy_changed(required: bool, message: String) -> void:
+	if is_instance_valid(_settings):
+		_settings.update_privacy(required, message)
 
 
 func _preview_audio(values: Vector3) -> void:

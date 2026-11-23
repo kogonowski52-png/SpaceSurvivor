@@ -1,18 +1,26 @@
 extends Node
-## Orchestrates requests. An adapter proves each receipt before the profile may grant it.
+## Serializes platform requests and applies only verified local or server receipts.
 
 signal status_changed(state: String, message: String)
+signal catalog_changed
 
 const Offers := preload("res://data/store/commerce_catalog.gd")
 const Profile := preload("res://data/pilot_progression.gd")
 const Adapter := preload("res://commerce/billing_adapter.gd")
 const MESSAGES := {
 	"cancelled": "Zakup anulowany. Saldo pozostaje bez zmian.",
-	"network_error": "Błąd sieci w symulacji. Spróbuj ponownie lub przywróć zakupy.",
+	"network_error": "Błąd sieci. Spróbuj ponownie lub przywróć zakupy.",
 	"error": "Zakup nie został zatwierdzony.",
 	"unavailable": "Google Play Billing jest niedostępny w tej konfiguracji.",
 	"storage_error": "Nie udało się zapisać zamówienia testowego.",
-	"pending": "Oczekujące zamówienie testowe. Nagroda pojawi się po zatwierdzeniu.",
+	"pending": "Zamówienie oczekuje na potwierdzenie płatności.",
+	"busy": "Zakończ poprzednie zamówienie w Google Play.",
+	"owned_on_play": "Google Play już widzi to zamówienie. Sprawdzamy rozliczenie.",
+	"verification_unavailable": "Zweryfikuj konto gracza, aby rozliczać zakupy Google Play.",
+	"server_unavailable": "Serwer zakupów jest niedostępny. Przywróć zakupy po odzyskaniu połączenia.",
+	"session_required": "Zweryfikuj konto gracza, aby rozliczać zakupy Google Play.",
+	"wrong_account": "Zamówienie jest przypisane do innego konta gry.",
+	"wrong_purchase_environment": "Zamówienie pochodzi z innego środowiska Google Play.",
 }
 
 var adapter: Adapter
@@ -20,13 +28,16 @@ var _profile: Profile
 var _request := ""
 var _expected_sku := ""
 var _busy := false
+var _refresh_pending := false
 
 
 func configure(profile: Profile, provider: Adapter) -> void:
 	_profile = profile
 	adapter = provider
-	add_child(provider)
 	provider.answered.connect(_received)
+	provider.catalog_changed.connect(catalog_changed.emit)
+	provider.inventory_changed.connect(_refresh_inventory)
+	add_child(provider)
 
 
 func busy() -> bool:
@@ -35,7 +46,8 @@ func busy() -> bool:
 
 func pending(id: String) -> bool:
 	var offer: Dictionary = Offers.OFFERS.get(id, {})
-	return adapter.has_pending(offer.get("sku", ""))
+	var sku: String = offer.get("sku", "")
+	return not sku.is_empty() and adapter.has_pending(sku)
 
 
 func buy(id: String) -> void:
@@ -51,22 +63,43 @@ func buy(id: String) -> void:
 	if pending(id):
 		status_changed.emit("pending", MESSAGES.pending)
 		return
-	_start(offer.sku, "Otwieranie zakupu testowego…")
+	_start(offer.sku, "Otwieranie zakupu testowego…" if adapter.is_test() else "Otwieranie Google Play…")
 	adapter.begin_purchase(_request, _expected_sku)
 
 
 func restore(complete_pending: bool = false) -> void:
 	if _busy:
 		return
-	_start("", "Sprawdzanie zamówień testowych…")
-	adapter.restore(_request, complete_pending)
+	_start("", "Sprawdzanie zamówień testowych…" if adapter.is_test() else "Sprawdzanie zakupów Google Play…")
+	adapter.restore(_request, complete_pending and adapter.is_test())
+
+
+func connect_account(token: String) -> void:
+	if _busy or not adapter.can_connect_account():
+		return
+	_busy = true
+	status_changed.emit("loading", "Łączenie konta Google Play z profilem pilota…")
+	var result := await adapter.connect_account(token)
+	if not result.ok:
+		_finish("error", MESSAGES.get(result.get("error"), "Nie udało się zapisać połączenia konta."))
+		return
+	_finish("success", "Konto zakupów zostało połączone.")
+	_refresh_inventory.call_deferred()
+
+
+func _refresh_inventory() -> void:
+	if _busy:
+		_refresh_pending = true
+	else:
+		restore()
 
 
 func _start(sku: String, message: String) -> void:
 	_expected_sku = sku
 	_request = Crypto.new().generate_random_bytes(12).hex_encode()
 	_busy = true
-	get_tree().create_timer(35.0).timeout.connect(_expire.bind(_request))
+	var timeout := 35.0 if adapter.is_test() else 180.0
+	get_tree().create_timer(timeout).timeout.connect(_expire.bind(_request))
 	status_changed.emit("loading", message)
 
 
@@ -75,23 +108,31 @@ func _expire(id: String) -> void:
 		_received(id, "network_error", [])
 
 
+func _finish(state: String, message: String) -> void:
+	_busy = false
+	status_changed.emit(state, message)
+	if _refresh_pending:
+		_refresh_pending = false
+		_refresh_inventory.call_deferred()
+
+
 func _received(id: String, state: String, receipts: Array) -> void:
 	if not _busy or id != _request:
 		return
 	var expected := _expected_sku
-	_busy = false
 	_request = ""
 	if state not in ["success", "restored"]:
-		status_changed.emit(state, MESSAGES.get(state, MESSAGES.error))
+		_finish(state, MESSAGES.get(state, MESSAGES.error))
 		return
 	if state == "success" and receipts.is_empty():
-		status_changed.emit("error", "Brakuje potwierdzenia zakupu.")
+		_finish("error", "Brakuje potwierdzenia zakupu.")
 		return
 	var applied := 0
 	var awaiting := 0
 	var duplicate := 0
 	var rejected := 0
 	var detail := ""
+	var outcomes: Array[Dictionary] = []
 	for value: Variant in receipts:
 		if not value is Dictionary or (not expected.is_empty() and value.get("sku") != expected):
 			rejected += 1
@@ -99,25 +140,73 @@ func _received(id: String, state: String, receipts: Array) -> void:
 		if value.get("stage") == "pending":
 			awaiting += 1
 			continue
-		var offer := Offers.from_sku(str(value.get("sku", "")))
-		if offer.is_empty() or not adapter.is_test() or not adapter.verify_receipt(value):
+		outcomes.append(await _fulfill(value))
+	if state == "restored" and not adapter.is_test() and adapter.online_ready():
+		var backlog := await adapter.outstanding()
+		if not backlog.get("ok", false) or not backlog.get("orders") is Array:
 			rejected += 1
-			continue
-		var outcome := _profile.redeem_test_order(offer, value.token)
-		detail = outcome.message
-		if not outcome.ok:
+			detail = MESSAGES.get(backlog.get("error"), MESSAGES.error)
+		else:
+			for grant: Variant in backlog.orders:
+				if grant is Dictionary:
+					outcomes.append(await _apply_online_grant(grant))
+	for outcome in outcomes:
+		if not outcome.get("ok", false):
 			rejected += 1
-		elif outcome.state == "duplicate":
+			detail = outcome.message
+		elif outcome.get("state") == "duplicate":
 			duplicate += 1
 		else:
 			applied += 1
+			if detail.is_empty():
+				detail = outcome.message
 	if state == "restored":
-		var code := "error" if rejected > 0 else "restored"
-		status_changed.emit(code, "Rozliczono %d nowych · %d wcześniej · %d oczekuje · %d odrzucono." %
-			[applied, duplicate, awaiting, rejected])
+		if rejected > 0 and not detail.is_empty():
+			_finish("error", detail)
+		else:
+			_finish("error" if rejected > 0 else "restored", "Rozliczono %d nowych · %d wcześniej · %d oczekuje · %d odrzucono." %
+				[applied, duplicate, awaiting, rejected])
 	elif rejected > 0:
-		status_changed.emit("error", detail if not detail.is_empty() else "Nie udało się zweryfikować zakupu.")
+		_finish("error", detail if not detail.is_empty() else "Nie udało się zweryfikować zakupu.")
 	elif awaiting > 0:
-		status_changed.emit("pending", MESSAGES.pending)
+		_finish("pending", MESSAGES.pending)
 	else:
-		status_changed.emit("duplicate" if duplicate else "success", detail)
+		_finish("duplicate" if duplicate else "success", detail)
+
+
+func _fulfill(receipt: Dictionary) -> Dictionary:
+	var sku := str(receipt.get("sku", ""))
+	var offer := Offers.from_sku(sku)
+	if offer.is_empty() or receipt.get("stage") != "purchased" or not receipt.get("token") is String:
+		return _failure("invalid_purchase")
+	if adapter.is_test():
+		if adapter.verify_receipt(receipt):
+			return _profile.redeem_test_order(offer, receipt.token)
+		return _failure("invalid_purchase")
+	var proof := await adapter.authorize(receipt)
+	if not proof.get("ok", false):
+		return _failure(proof.get("error", "invalid_purchase"))
+	if proof.get("sku") != sku:
+		return _failure("wrong_product")
+	return await _apply_online_grant(proof)
+
+
+func _apply_online_grant(grant: Dictionary) -> Dictionary:
+	var mode: Variant = grant.get("mode")
+	if mode == "other_device":
+		return {"ok": false, "message": "To zamówienie oczekuje na odbiór na urządzeniu, na którym je rozliczono."}
+	if mode == "received":
+		return {"ok": true, "state": "duplicate", "message": "To zamówienie zostało już dostarczone."}
+	var offer := Offers.from_sku(str(grant.get("sku", "")))
+	var delivery: Variant = grant.get("delivery_id")
+	if mode not in ["deliver", "restore"] or offer.is_empty() or not delivery is String:
+		return _failure("invalid_purchase")
+	var outcome := _profile.redeem_verified_order(offer, delivery, mode == "restore")
+	if outcome.ok and mode == "deliver":
+		# Confirm delivery only after the profile has persisted the receipt and grant together.
+		await adapter.mark_received(delivery)
+	return outcome
+
+
+func _failure(code: Variant) -> Dictionary:
+	return {"ok": false, "message": MESSAGES.get(code, "Nie udało się zweryfikować zamówienia Google Play.")}

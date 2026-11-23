@@ -21,7 +21,7 @@ Postępy zapisują się automatycznie po zakupie, wyposażeniu, odbiorze nagrody
 
 ## Sklep i waluty
 
-**Sklep** w menu i hangarze obsługuje Credits, Crystals, skórki, zestawy modułów i przepustkę Helion. Crystals można zdobywać za zwycięstwa, z kalendarza i darmowego toru Helionu. Zakupy Google Play oraz reklamy z nagrodą działają w wyraźnie oznaczonej symulacji bez płatności i emisji reklam. [Katalog, scenariusze testowe i kontrakty integracji](COMMERCE.md)
+**Sklep** w menu i hangarze obsługuje Credits, Crystals, skórki, zestawy modułów i przepustkę Helion. Crystals można zdobywać za zwycięstwa, z kalendarza i darmowego toru Helionu. Windows korzysta z jawnie oznaczonej symulacji. Android korzysta z Google Play Billing i AdMob, domyślnie z testową jednostką reklamy. Przyjmowanie płatności wymaga produktów Google Play i serwera właściciela. [Katalog i scenariusze testowe](COMMERCE.md) · [Integracja Android](ANDROID_INTEGRATION.md)
 
 ## Uruchomienie
 
@@ -38,10 +38,11 @@ Bazowy obszar gry ma 540 × 960 jednostek. Na wyższych ekranach zwiększa się 
 
 ## Eksport
 
-Zainstaluj oficjalne szablony eksportu zgodne z Godot 4.7.2 stable. Na Androida skonfiguruj ścieżki JDK i Android SDK w ustawieniach edytora. Preset **Android** buduje testowe APK dla arm64-v8a oraz x86_64. Weryfikację podpisu umożliwia `apksigner verify GalaxyStrike.apk`. Preset **Windows** buduje program x86-64 z danymi gry osadzonymi w pliku wykonywalnym.
+Zainstaluj oficjalne szablony eksportu zgodne z Godot 4.7.2 stable. Na Androida skonfiguruj JDK 17 i Android SDK 36 w ustawieniach edytora. Preset **Android** buduje testowe APK dla arm64-v8a oraz x86_64. Preset **Android Play AAB** buduje paczkę Google Play. Preset **Windows** buduje program x86-64 z danymi gry osadzonymi w pliku wykonywalnym. [Konfiguracja Androida i podpisywanie](ANDROID_INTEGRATION.md)
 
 ```sh
 mkdir -p build/android build/windows
+bash tools/prepare_android.sh
 godot --headless --export-debug Android build/android/GalaxyStrike.apk
 godot --headless --export-debug Windows build/windows/GalaxyStrike.exe
 ```

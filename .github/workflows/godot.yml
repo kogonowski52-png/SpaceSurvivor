@@ -28,3 +28,5 @@ jobs:
           printf 'GODOT_BIN=%s/%s\n' "$RUNNER_TEMP" "$binary" >> "$GITHUB_ENV"
       - name: Play the mission headlessly
         run: bash tests/run.sh --full-mission
+      - name: Check verified Play deliveries
+        run: python3 -m unittest discover -s server -v

@@ -2,6 +2,8 @@ extends Node
 ## Platform boundary. Report all responses on the main thread with the original request ID.
 
 signal answered(request_id: String, state: String, receipts: Array)
+signal catalog_changed
+signal inventory_changed
 
 
 func begin_purchase(request_id: String, _sku: String) -> void:
@@ -23,3 +25,35 @@ func verify_receipt(_receipt: Dictionary) -> bool:
 
 func is_test() -> bool:
 	return false
+
+
+func catalog() -> Dictionary:
+	return {}
+
+
+func refresh_catalog() -> void:
+	pass
+
+
+func online_ready() -> bool:
+	return false
+
+
+func can_connect_account() -> bool:
+	return false
+
+
+func connect_account(_token: String) -> Dictionary:
+	return {"ok": false, "error": "session_required"}
+
+
+func authorize(_receipt: Dictionary) -> Dictionary:
+	return {"ok": false, "error": "server_unavailable"}
+
+
+func outstanding() -> Dictionary:
+	return {"ok": false, "error": "server_unavailable"}
+
+
+func mark_received(_delivery: String) -> Dictionary:
+	return {"ok": false, "error": "server_unavailable"}

@@ -4,4 +4,15 @@ build/
 *.jks
 *.keystore
 *.apk
+*.aab
 *.exe
+/android/.build_version
+export_credentials.cfg
+play_session.json
+play_test_session.json
+.env
+*.p12
+__pycache__/
+*.sqlite3
+*.sqlite3-*
+service-account*.json
