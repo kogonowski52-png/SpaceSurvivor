@@ -78,3 +78,9 @@ W próbie kompozycji cztery statki dają rozróżnialne sylwetki zarówno w hang
 Ilustracja menu pokazuje Peregrine pod kątem, z odtworzonymi białymi grodziami rufowymi, granatowymi skrzydłami, wydłużoną cyjanową kabiną i parą prostokątnych wylotów. Zachowano ciemny obszar na tekst przy górnej i dolnej krawędzi oraz łuk atmosfery za sylwetką. Menu używa ilustracji referencyjnej. W hangarze i walce kształt pochodzi z tej samej grafiki ortogonalnej, w dwóch rozdzielczościach.
 
 W nowych wariantach referencyjnych Razora i Widma lepiej widać stalowe krawędzie skrzydeł oraz podział grafitowych i bordowych płyt. W statycznym porównaniu na tle areny przy wysokościach 58 i 99 px obie jednostki zachowują wcześniejsze sylwetki i charakterystyczne kolory kabin. Tekstury zachowały kanał alfa i mipmapy. Ocena materiałów i sygnałów poprzedzających ataki w ruchu przy niskiej jasności wymaga próby na fizycznym telefonie.
+
+## Dopracowanie 0.7.1
+
+- Scout, Razor i Widmo otrzymały matowy granatowy podrys i cienką krawędź w kolorze klasy, wypalone do tekstury z istniejącego kadłuba. W walce efekty dekoracyjne słabną przy statku pilota, a ostrzeżenia bossów trafiają nad eskortę. Pociski i animowana wiązka korzystają z jednego wypalonego atlasu oświetlenia. [Generator obrysu](tools/bake_enemy_rims.gd) · [Generator atlasu](tools/bake_flight_lights.gd)
+- Hangar używa kadru istniejącej hali, większych miniatur i animowanego odbicia na teksturach czterech statków. Odbicie ogranicza się do sylwetki kadłuba. W wyposażeniu hierarchię rozdzielają gniazda bieżącego statku, wartości, opisy i magazyn.
+- Ilustracje zasobnika, kontenera i rdzenia Crystals oraz pięciu klas wyposażenia wygenerowano dla tej wersji. Tekstury WebP w `assets/art/crystals/` i `assets/art/modules/` zachowują przezroczystość. Wizualizacje wyposażenia pokazują typ modułu. Jego nazwę, rzadkość i efekt określa karta nagrody. Fiolet odróżnia Epic, a ciepły metal i większa ilustracja podkreślają Legendary.

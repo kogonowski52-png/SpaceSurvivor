@@ -9,6 +9,8 @@ const Pages := preload("res://ui/hangar_pages.gd")
 const Glyph := preload("res://ui/hangar_glyph.gd")
 const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
 const Display := preload("res://assets/fonts/Oxanium.ttf")
+const Inspection := preload("res://ui/hull_inspection.gdshader")
+const HangarArt := preload("res://assets/art/hangar.jpg")
 const TABS := {
 	"overview": "HANGAR", "inventory": "EKWIPUNEK", "sectors": "SEKTORY", "rewards": "NAGRODY",
 }
@@ -101,8 +103,7 @@ func _background() -> void:
 	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	if ResourceLoader.exists("res://assets/art/hangar.jpg"):
-		image.texture = load("res://assets/art/hangar.jpg")
+	image.texture = HangarArt
 	add_child(image)
 	image.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
@@ -213,7 +214,7 @@ func _overview(parent: VBoxContainer) -> void:
 	var name_label := _label(parent, ship["title"], 36, Palette.TEXT)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_preview(parent, selected, ship)
-	var description := _label(parent, ship["description"], 19, Palette.TEXT, true)
+	var description := _label(parent, ship["description"], 20, Palette.TEXT, true)
 	description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	var picker := _row(7)
@@ -222,6 +223,9 @@ func _overview(parent: VBoxContainer) -> void:
 	for id in Catalog.SHIPS:
 		var option: Dictionary = Catalog.SHIPS[id]
 		_ship_option(picker, id, option, id == selected, id not in unlocked)
+	var workshop := _button(parent, "WorkshopButton", "ULEPSZENIA STAŁE  ›", _switch_tab.bind("workshop"))
+	workshop.custom_minimum_size.y = 54
+	_style_button(workshop, false, tone)
 
 	var stats: Dictionary = _data.get("stats", Catalog.BASE_STATS)
 	var grid := GridContainer.new()
@@ -231,104 +235,138 @@ func _overview(parent: VBoxContainer) -> void:
 	grid.add_theme_constant_override("v_separation", 8)
 	parent.add_child(grid)
 	for stat in STAT_NAMES:
-		var tile := _panel(grid, Color("#0d1b2aed"), Palette.OUTLINE, 10.0)
+		var tile := _panel(grid, Color("#0d1b2aed"), Palette.OUTLINE, 8.0)
 		tile.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(tile, STAT_NAMES[stat], 13, Palette.MUTED)
-		_label(tile, _stat_value(stat, stats), 25, tone)
-	var workshop := _button(parent, "WorkshopButton", "ULEPSZENIA STAŁE  ›", _switch_tab.bind("workshop"))
-	_style_button(workshop, false, tone)
+		_label(tile, STAT_NAMES[stat], 16, Palette.MUTED)
+		_label(tile, _stat_value(stat, stats), 27, tone.lightened(0.10))
 
 
 func _ship_option(picker: HBoxContainer, id: String, ship: Dictionary, selected: bool, locked: bool) -> void:
 	var tone: Color = ship["accent"]
 	var control := _button(picker, "ShipButton_%s" % id, "", action_requested.emit.bind("select_ship", id))
-	control.custom_minimum_size.y = 79.0
+	control.custom_minimum_size.y = 98.0
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	control.accessibility_name = str(ship["title"])
 	control.disabled = locked
 	if selected:
 		_style_button(control, false, tone)
+	if locked:
+		var style := Palette.plate(Color("#152338"), tone.darkened(0.68), 8)
+		style.set_border_width(SIDE_BOTTOM, 2)
+		control.add_theme_stylebox_override("disabled", style)
 	var thumbnail := TextureRect.new()
 	thumbnail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	thumbnail.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	thumbnail.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	var path := str(ship["sprite"])
+	var path := _hull_art(id, ship)
 	if ResourceLoader.exists(path):
 		thumbnail.texture = load(path)
-	thumbnail.modulate.a = 0.44 if locked else 1.0
+	thumbnail.modulate = Color("#c8d5e5") if locked else Color.WHITE
 	control.add_child(thumbnail)
 	thumbnail.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	thumbnail.offset_left = 12.0
-	thumbnail.offset_right = -12.0
-	thumbnail.offset_top = 5.0
-	thumbnail.offset_bottom = 41.0
-	var name_label := _label(control, str(ship["title"]), 15, tone.lightened(0.23) if selected else Palette.TEXT)
+	thumbnail.offset_left = 7.0
+	thumbnail.offset_right = -7.0
+	thumbnail.offset_top = 6.0
+	thumbnail.offset_bottom = 58.0
+	var name_label := _label(control, str(ship["title"]), 16, tone.lightened(0.23) if selected else Palette.TEXT)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	name_label.offset_top = 40.0
-	name_label.offset_bottom = 60.0
+	name_label.offset_top = 57.0
+	name_label.offset_bottom = 78.0
 	if locked:
 		var sector: Dictionary = Catalog.SECTORS.get(ship["unlock_sector"], {})
 		var unlock := "%s · %d wygr." % [sector.get("title", ""), ship["unlock_wins"]]
 		control.accessibility_description = "Zablokowany · " + unlock
-		_ship_option_status(control, unlock, Palette.MUTED)
+		control.tooltip_text = control.accessibility_description
+		_ship_option_status(control, "OD %d WYGR." % ship["unlock_wins"], Palette.MUTED)
 	elif selected:
 		_ship_option_status(control, "AKTYWNY", tone)
 
 
 func _ship_option_status(control: Button, text: String, tone: Color) -> void:
-	var hint := _label(control, text, 11, tone)
+	var hint := _label(control, text, 12, tone)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	hint.offset_top = -18.0
+	hint.offset_top = -21.0
 	hint.offset_bottom = -4.0
 
 
 func _preview(parent: VBoxContainer, id: String, ship: Dictionary) -> void:
-	var frame := Control.new()
+	var frame := PanelContainer.new()
 	frame.name = "ShipPreview"
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tone: Color = ship["accent"]
 	var extra_height := clampf(get_viewport_rect().size.y - 960.0, 0.0, 240.0)
-	frame.custom_minimum_size.y = 252.0 + extra_height * 0.58
+	frame.custom_minimum_size.y = 256.0 + extra_height * 0.44
+	frame.add_theme_stylebox_override("panel", Palette.plate(Color("#0a1422"), tone.darkened(0.62), 13, 3))
 	parent.add_child(frame)
 	var field := Control.new()
 	field.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	field.clip_contents = true
 	frame.add_child(field)
-	field.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	field.draw.connect(_draw_docking_field.bind(field, ship["accent"]))
+	var backdrop := TextureRect.new()
+	backdrop.texture = HangarArt
+	backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	backdrop.modulate = tone.lerp(Color("#a7bad3"), 0.74)
+	backdrop.modulate.a = 0.38
+	field.add_child(backdrop)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var docking := Control.new()
+	docking.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	field.add_child(docking)
+	docking.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	docking.draw.connect(_draw_docking_field.bind(docking, tone))
 	var sprite := TextureRect.new()
 	sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	var path := "res://assets/art/ship_peregrine_preview.png" if id == "peregrine" else str(ship["sprite"])
+	var path := _hull_art(id, ship)
 	if ResourceLoader.exists(path):
 		sprite.texture = load(path)
 	var skin_id: String = _profile.get("commerce", {}).get("equipped_skins", {}).get(id, "")
 	if ShopCatalog.SKINS.has(skin_id):
 		sprite.modulate = ShopCatalog.SKINS[skin_id].tint
-	frame.add_child(sprite)
+	var lighting := ShaderMaterial.new()
+	lighting.shader = Inspection
+	lighting.set_shader_parameter("accent", tone)
+	sprite.material = lighting
+	field.add_child(sprite)
 	sprite.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	sprite.offset_left = 59
-	sprite.offset_right = -59
-	var drift := extra_height * 0.37
+	sprite.offset_left = 42
+	sprite.offset_right = -42
+	sprite.offset_top = 13
+	sprite.offset_bottom = -13
 	sprite.resized.connect(func() -> void: sprite.pivot_offset = sprite.size * 0.5)
+	var light_sweep := sprite.create_tween().set_trans(Tween.TRANS_SINE)
+	light_sweep.tween_method(func(value: float) -> void: lighting.set_shader_parameter("sweep", value), -0.16, 1.48, 1.12)
 	var float_animation := sprite.create_tween().set_loops().set_trans(Tween.TRANS_SINE)
-	float_animation.tween_property(sprite, "rotation", 0.035, 2.8).from(-0.035)
-	float_animation.parallel().tween_property(sprite, "offset_top", drift + 6.0, 2.8).from(drift - 6.0)
-	float_animation.parallel().tween_property(sprite, "offset_bottom", 6.0, 2.8).from(-6.0)
-	float_animation.tween_property(sprite, "rotation", -0.035, 2.8)
-	float_animation.parallel().tween_property(sprite, "offset_top", drift - 6.0, 2.8)
-	float_animation.parallel().tween_property(sprite, "offset_bottom", -6.0, 2.8)
+	float_animation.tween_property(sprite, "rotation", 0.033, 2.8).from(-0.033)
+	float_animation.parallel().tween_property(sprite, "offset_top", 17.0, 2.8).from(9.0)
+	float_animation.parallel().tween_property(sprite, "offset_bottom", -9.0, 2.8).from(-17.0)
+	float_animation.tween_property(sprite, "rotation", -0.033, 2.8)
+	float_animation.parallel().tween_property(sprite, "offset_top", 9.0, 2.8)
+	float_animation.parallel().tween_property(sprite, "offset_bottom", -17.0, 2.8)
+
+
+func _hull_art(id: String, ship: Dictionary) -> String:
+	return "res://assets/art/ship_peregrine_preview.png" if id == "peregrine" else str(ship["sprite"])
 
 
 func _draw_docking_field(field: Control, tone: Color) -> void:
-	var center := field.size * Vector2(0.5, 0.55)
-	var radius := minf(field.size.x * 0.43, field.size.y * 0.45)
-	field.draw_arc(center, radius, 0.0, TAU, 72, Color(tone, 0.15), 1.0, true)
-	for axis in [0.0, TAU * 0.25, TAU * 0.5, TAU * 0.75]:
-		field.draw_arc(center, radius + 7.0, axis - 0.16, axis + 0.16, 12, Color(tone, 0.48), 1.25, true)
-		var direction := Vector2.from_angle(axis)
-		field.draw_line(center + direction * (radius + 9.0), center + direction * (radius + 17.0), Color(tone, 0.38), 1.0, true)
+	var center := field.size * Vector2(0.5, 0.59)
+	var radius := minf(field.size.x * 0.40, field.size.y * 0.43)
+	field.draw_set_transform(center, 0.0, Vector2(1, 0.46))
+	field.draw_arc(Vector2.ZERO, radius, 0.0, TAU, 72, Color(tone, 0.24), 1.0, true)
+	field.draw_arc(Vector2.ZERO, radius + 12.0, 0.32, 2.81, 36, Color(tone, 0.56), 1.5, true)
+	field.draw_set_transform(Vector2.ZERO)
+	for side: int in [-1, 1]:
+		var x := center.x + side * radius * 1.18
+		field.draw_line(Vector2(x, center.y - 76), Vector2(x, center.y + 41), Color(tone, 0.26), 1.0, true)
+		for mark in 5:
+			var y := center.y - 62.0 + mark * 19.0
+			field.draw_line(Vector2(x, y), Vector2(x + side * (13 if mark == 2 else 7), y), Color(tone, 0.43), 1.2, true)
 
 
 func _workshop(parent: VBoxContainer) -> void:
@@ -336,7 +374,7 @@ func _workshop(parent: VBoxContainer) -> void:
 	var ship: Dictionary = Catalog.SHIPS.get(selected, Catalog.SHIPS["peregrine"])
 	var title := _panel(parent, Color("#111e2cf2"), Palette.OUTLINE)
 	_label(title, ship["title"], 27, ship["accent"])
-	_label(title, "Zmiany dotyczą tego statku we wszystkich kolejnych misjach.", 18, Palette.MUTED, true)
+	_label(title, "Zmiany dotyczą tego statku we wszystkich kolejnych misjach.", 20, Palette.MUTED, true)
 
 	var stats: Dictionary = _data.get("stats", Catalog.BASE_STATS)
 	var prices: Dictionary = _data.get("upgrade_prices", {})
@@ -356,24 +394,31 @@ func _workshop(parent: VBoxContainer) -> void:
 		track_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var level := int(price.get("level", 0))
 		var cap := int(price.get("max_level", 0))
-		_label(header, "POZIOM %d / %d" % [level, cap], 15, tone)
+		_label(header, "POZIOM %d / %d" % [level, cap], 17, tone)
 		var stat: String = spec["stat"]
-		var current := _stat_value(stat, stats)
+		var upgraded: bool = _data.get("highlight") == "upgrade" and _data.get("highlight_value") == track
+		var before := stats
+		var after: Dictionary = price.get("next_stats", {}) if level < cap else {}
+		if upgraded:
+			var prior: Dictionary = _profile.get("levels", {}).get(selected, {}).duplicate()
+			prior[track] = maxi(0, level - 1)
+			before = Catalog.build_stats(selected, prior, _profile.get("equipped", {}).get(selected, {}))
+			after = stats
 		var comparison := _row(9)
 		card.add_child(comparison)
-		_label(comparison, current, 24, Palette.MUTED if level < cap else tone)
-		if level < cap and price.has("next_stats"):
-			var next_stats: Dictionary = price["next_stats"]
+		_label(comparison, _stat_value(stat, before), 25, tone if after.is_empty() else Palette.MUTED)
+		var gain: Label
+		if not after.is_empty():
 			_label(comparison, "→", 21, Palette.MUTED)
-			var future := _label(comparison, _stat_value(stat, next_stats), 25, tone)
+			var future := _label(comparison, _stat_value(stat, after), 27, tone.lightened(0.12))
 			future.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			var delta := float(next_stats[stat]) - float(stats[stat])
+			var delta := float(after[stat]) - float(before[stat])
 			var increase := "+%d HP" % roundi(delta) if stat == "max_hp" else "+%d pp" % roundi(delta * 100.0)
-			_label(comparison, increase, 16, tone.lightened(0.20))
+			gain = _label(comparison, ("UZYSKANO  " if upgraded else "") + increase, 18, tone.lightened(0.20))
 		var rank := ProgressBar.new()
 		rank.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		rank.show_percentage = false
-		rank.custom_minimum_size.y = 5
+		rank.custom_minimum_size.y = 7
 		rank.max_value = maxi(1, cap)
 		rank.value = level
 		rank.add_theme_stylebox_override("background", Palette.panel(Palette.TRACK, Palette.TRACK, 2))
@@ -384,14 +429,19 @@ func _workshop(parent: VBoxContainer) -> void:
 		if level < cap and not can_afford:
 			text = "POTRZEBA  %d KR  +  %d MAT" % [price.get("coins", 0), price.get("materials", 0)]
 		var upgrade := _button(card, spec["button"], text, action_requested.emit.bind("upgrade", track))
+		upgrade.custom_minimum_size.y = 54
 		_style_button(upgrade, false, tone)
 		upgrade.disabled = level >= cap or not can_afford
-		if _data.get("highlight", "") == "upgrade" and _data.get("highlight_value", "") == track:
+		if upgraded:
 			var panel := card.get_parent() as PanelContainer
 			var style := panel.get_theme_stylebox("panel") as StyleBoxFlat
-			var animation := panel.create_tween().set_trans(Tween.TRANS_CUBIC)
-			animation.tween_property(style, "border_color", style.border_color, 0.82).from(tone)
-			animation.parallel().tween_property(rank, "value", float(level), 0.55).from(float(maxi(0, level - 1)))
+			style.set_border_width(SIDE_LEFT, 3)
+			var animation := panel.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			animation.tween_property(style, "border_color", tone.darkened(0.28), 0.78).from(tone.lightened(0.33))
+			animation.parallel().tween_property(style, "bg_color", style.bg_color, 0.71).from(style.bg_color.lerp(tone, 0.23))
+			animation.parallel().tween_property(rank, "value", float(level), 0.57).from(float(maxi(0, level - 1)))
+			if gain != null:
+				animation.parallel().tween_property(gain, "modulate:a", 1.0, 0.45).from(0.35).set_delay(0.12)
 
 
 func _stat_value(stat: String, stats: Dictionary) -> String:

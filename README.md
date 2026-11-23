@@ -69,4 +69,4 @@ Pierwsze polecenie importuje projekt, sprawdza uzbrojenie, bossów, hangar, audi
 
 ## Audyt przed wydaniem
 
-Wersja 0.7.0 jest przeznaczona do testów na Androidzie. Zawiera opcjonalną diagnostykę lotu i blokadę rzeczywistych płatności. [Raport 0.7.0](VERSION_0_7_0.md) · [Testy na telefonie](release/ANDROID_QA_0_7_PL.md) · [Portfel testowy](server/WALLET_0_7_PL.md) · [Google Play Console](release/PUBLICATION_PL.md)
+Wersja 0.7.1 dopracowuje czytelność walki, prezentację floty, ekwipunek, sklep i nagrody. Kompilacja testowa Androida ma opcjonalną diagnostykę lotu i blokadę rzeczywistych płatności. [Raport 0.7.1](VERSION_0_7_1.md) · [Audyt 0.7.0](release/GRAPHICS_AUDIT_0_7_0.md) · [Testy na telefonie](release/ANDROID_QA_0_7_PL.md) · [Portfel testowy](server/WALLET_0_7_PL.md)

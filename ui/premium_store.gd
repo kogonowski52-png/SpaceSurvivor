@@ -9,6 +9,7 @@ const Visual := preload("res://ui/store_art.gd")
 const Display := preload("res://assets/fonts/Oxanium.ttf")
 const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
 const HANGAR := preload("res://assets/art/hangar.jpg")
+const CRYSTAL_TONES := [Color("#a4cdff"), Palette.VIOLET, Color("#dfb7ff")]
 const BILLING_CASES := {
 	"success": "Sukces", "cancelled": "Anulowanie", "error": "Błąd zakupu",
 	"network_error": "Błąd sieci", "unavailable": "Usługa niedostępna",
@@ -169,8 +170,11 @@ func _wallet_details(parent: Container) -> void:
 
 func _product(parent: Container, id: String, offer: Dictionary) -> void:
 	var art_tint := Palette.CYAN
+	var crystal_rank := 0
 	match str(offer.art):
-		"crystals": art_tint = Palette.VIOLET
+		"crystals":
+			crystal_rank = clampi(int(offer.get("art_rank", 1)), 1, CRYSTAL_TONES.size())
+			art_tint = CRYSTAL_TONES[crystal_rank - 1]
 		"gear", "season": art_tint = Palette.AMBER
 	var skin: String = offer.get("skin", "")
 	var skin_info: Dictionary = Offers.SKINS.get(skin, {})
@@ -178,21 +182,31 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 		art_tint = skin_info.accent
 	var card := _panel(parent, art_tint, 14)
 	card.name = "Product_" + id
+	if crystal_rank > 0:
+		var plate := card.get_parent() as PanelContainer
+		var face := plate.get_theme_stylebox("panel") as StyleBoxFlat
+		face.bg_color = Color("#111e2cee") if crystal_rank == 1 else Color("#171829f7")
+		face.set_border_width(SIDE_TOP, 2 if crystal_rank == 3 else 1)
 	var row := _row(card, 12)
 	var art := Visual.new()
 	art.motif = offer.art
 	art.accent = art_tint
 	art.tint = skin_info.get("tint", Color.WHITE)
-	art.rank = int(offer.get("art_rank", 1))
+	art.rank = maxi(1, crystal_rank)
 	art.items = offer.get("items", [])
-	row.add_child(art)
 	var details := VBoxContainer.new()
 	details.add_theme_constant_override("separation", 4)
 	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if crystal_rank != 2:
+		row.add_child(art)
 	row.add_child(details)
-	_label(details, str(offer.subtitle).to_upper(), 13, art_tint, true)
+	if crystal_rank == 2:
+		row.add_child(art)
+	if crystal_rank > 0:
+		details.alignment = BoxContainer.ALIGNMENT_CENTER
+	_label(details, str(offer.subtitle).to_upper(), 15 if crystal_rank > 0 else 13, art_tint, true)
 	var listing: Dictionary = _data.catalog.get(offer.get("sku", ""), {})
-	_label(details, listing.get("title", offer.title), 25, Palette.TEXT, true)
+	_label(details, listing.get("title", offer.title), 32 if crystal_rank == 3 else 27, Palette.TEXT, true)
 	_label(details, offer.description, 18, Palette.MUTED)
 
 	var profile: Dictionary = _data.profile

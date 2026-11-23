@@ -1,7 +1,6 @@
 extends RefCounted
 
 const CYAN := Color("#65e9ff")
-const LASER := Color("#81f5ed")
 const PLASMA := Color("#ec79ff")
 const TESLA := Color("#b494ff")
 const DRONE := Color("#ffdc87")
@@ -27,6 +26,8 @@ var _laser_tick := 0.0
 var _laser_heading := 0.0
 var _laser_start := Vector2.ZERO
 var _laser_finish := Vector2.ZERO
+var _laser_impact := Vector2.ZERO
+var _laser_impact_life := 0.0
 var _orbital_timer := 0.0
 var _tesla_timer := 0.0
 var _drone_timer := 0.0
@@ -124,6 +125,7 @@ func _laser_range(rank: int) -> float:
 func _step_laser(arena: Node2D, delta: float, rank: int) -> void:
 	_laser_timer -= delta
 	_laser_remaining = maxf(0.0, _laser_remaining - delta)
+	_laser_impact_life = maxf(0.0, _laser_impact_life - delta)
 	if _laser_remaining <= 0.0 and _laser_timer > 0.0:
 		return
 	var reach := _laser_range(rank)
@@ -147,13 +149,20 @@ func _step_laser(arena: Node2D, delta: float, rank: int) -> void:
 		return
 	_laser_tick += LASER_TICK_INTERVAL
 	var damage := (8.0 + 3.0 * (rank - 1)) * float(arena._stats["weapon_damage_multiplier"])
+	var nearest := INF
 	for index in range(arena._enemies.size() - 1, -1, -1):
 		var enemy: RefCounted = arena._enemies[index]
 		var point := Geometry2D.get_closest_point_to_segment(enemy.position, _laser_start, _laser_finish)
 		var width := float(enemy.radius) + 5.0
-		if point.distance_squared_to(enemy.position) <= width * width:
+		var miss := point.distance_squared_to(enemy.position)
+		if miss <= width * width:
+			var lateral := sqrt(maxf(0.0, float(enemy.radius) * float(enemy.radius) - miss))
+			var distance := maxf(0.0, direction.dot(point - _laser_start) - lateral)
+			if distance < nearest:
+				nearest = distance
+				_laser_impact = _laser_start + direction * distance
+				_laser_impact_life = LASER_TICK_INTERVAL
 			arena._damage_enemy(index, damage, direction)
-	arena._fx.burst(_laser_start, LASER, 4, 106.0, direction)
 
 
 func _orbital_count(rank: int) -> int:
@@ -302,14 +311,16 @@ func _add_trace(points: PackedVector2Array, tint: Color, width: float, duration:
 	_traces.append(trace)
 
 
-func draw_weapons(arena: Node2D, offset: Vector2, _frame: Rect2) -> void:
-	arena.draw_set_transform(offset)
+func draw_weapons(arena: Node2D, offset: Vector2, frame: Rect2) -> void:
 	if _laser_remaining > 0.0:
+		var age := LASER_DURATION - _laser_remaining
 		var fade := minf(1.0, _laser_remaining / 0.19)
-		var pulse := 0.82 + 0.18 * sin(_laser_remaining * 115.0)
-		arena.draw_line(_laser_start, _laser_finish, Color(LASER, 0.22 * fade), 17.0 * pulse, true)
-		arena.draw_line(_laser_start, _laser_finish, Color(LASER, fade), 5.8 * pulse, true)
-		arena.draw_line(_laser_start, _laser_finish, Color(HOT, fade), 1.9 * pulse, true)
+		var muzzle: Vector2 = arena._player_position + Vector2.from_angle(_laser_heading) * 38.0
+		arena._fx.laser(arena, muzzle + offset, _laser_finish + offset, age, fade)
+		if _laser_impact_life > 0.0 and frame.grow(20.0).has_point(_laser_impact + offset):
+			var contact := _laser_impact_life / LASER_TICK_INTERVAL
+			arena._fx.laser_contact(arena, _laser_impact + offset, 40.0 - 13.0 * contact, fade * contact)
+	arena.draw_set_transform(offset)
 	for trace in _traces:
 		var opacity := trace.life / trace.duration
 		arena.draw_polyline(trace.points, Color(trace.tint, opacity * 0.19), trace.width * 3.6, true)

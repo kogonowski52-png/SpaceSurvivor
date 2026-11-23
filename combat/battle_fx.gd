@@ -6,6 +6,12 @@ const MAX_COLLAPSES := 2
 const COLLAPSE_LIFETIME := 0.88
 const CYAN := Color("#7deaff")
 const WHITE_HOT := Color("#effbff")
+const LIGHTS := preload("res://assets/art/flight_lights.png")
+const STREAK := Rect2(0, 192, 128, 24)
+const HOSTILE_STREAK := Rect2(128, 192, 128, 24)
+const CONTACT := Rect2(0, 216, 64, 64)
+const PILOT_SHADE := Rect2(64, 216, 96, 64)
+const PILOT_CLEARANCE_SQ := 56.0 * 56.0
 
 class Spark:
 	var position: Vector2
@@ -63,6 +69,31 @@ func small_engine(canvas: Node2D, nozzle: Vector2, width: float, length: float, 
 	var flutter := 0.94 + sin(time * 58.0) * 0.10
 	var bounds := Rect2(nozzle - Vector2(width, 2.0), Vector2(width * 2.0, length * flutter))
 	canvas.draw_texture_rect(_plume, bounds, false, tint.lightened(0.37))
+
+
+func projectile(canvas: Node2D, origin: Vector2, heading: float, tail: float, width: float, tint: Color, hostile: bool) -> void:
+	canvas.draw_set_transform(origin, heading)
+	canvas.draw_texture_rect_region(LIGHTS, Rect2(-tail, -width * 0.5, tail + 6.0, width),
+		HOSTILE_STREAK if hostile else STREAK, tint)
+	canvas.draw_set_transform(Vector2.ZERO)
+
+
+func laser(canvas: Node2D, start: Vector2, finish: Vector2, age: float, opacity: float) -> void:
+	var span := finish - start
+	var layer := int(age * 36.0) % 8
+	canvas.draw_set_transform(start, span.angle())
+	canvas.draw_texture_rect_region(LIGHTS, Rect2(0, -10, span.length(), 20), Rect2(0, layer * 24, 256, 24),
+		Color(1, 1, 1, opacity))
+	canvas.draw_set_transform(Vector2.ZERO)
+
+
+func laser_contact(canvas: Node2D, origin: Vector2, extent: float, opacity: float) -> void:
+	var dimensions := Vector2.ONE * extent
+	canvas.draw_texture_rect_region(LIGHTS, Rect2(origin - dimensions * 0.5, dimensions), CONTACT, Color(1, 1, 1, opacity))
+
+
+func pilot_backlight(canvas: Node2D, origin: Vector2) -> void:
+	canvas.draw_texture_rect_region(LIGHTS, Rect2(origin - Vector2(62, 59), Vector2(124, 118)), PILOT_SHADE)
 
 
 func capital_break(texture: Texture2D, position: Vector2, heading: float, bounds: Rect2, tint: Color) -> void:
@@ -131,7 +162,7 @@ func ring(position: Vector2, tint: Color, radius: float, duration: float) -> voi
 	_rings.append(wave)
 
 
-func render(canvas: Node2D, offset: Vector2, view: Rect2) -> void:
+func render(canvas: Node2D, offset: Vector2, view: Rect2, pilot: Vector2) -> void:
 	for wave in _rings:
 		var origin := wave.position + offset
 		var progress := 1.0 - wave.life / wave.duration
@@ -139,18 +170,22 @@ func render(canvas: Node2D, offset: Vector2, view: Rect2) -> void:
 		if not view.grow(radius).has_point(origin):
 			continue
 		var opacity := pow(1.0 - progress, 1.4)
-		canvas.draw_arc(origin, radius, 0.0, TAU, 40, Color(wave.tint, opacity * 0.17), 9.0, true)
-		canvas.draw_arc(origin, radius, 0.0, TAU, 40, Color(wave.tint, opacity * 0.9), 1.8, true)
-		canvas.draw_arc(origin, radius * 0.89, 0.0, TAU, 36, Color(WHITE_HOT, opacity * 0.4), 1.0, true)
+		var clearance := absf(wave.position.distance_to(pilot) - radius)
+		var separation := smoothstep(22.0, 83.0, clearance)
+		canvas.draw_arc(origin, radius, 0.0, TAU, 36, Color(wave.tint, opacity * lerpf(0.22, 0.82, separation)), 1.7, true)
+		if separation > 0.25:
+			canvas.draw_arc(origin, radius * 0.89, 0.0, TAU, 32, Color(WHITE_HOT, opacity * separation * 0.33), 1.0, true)
 	for spark in _sparks:
 		var origin := spark.position + offset
 		if not view.has_point(origin):
 			continue
-		var opacity := spark.life / spark.duration
-		canvas.draw_line(origin - spark.velocity * 0.031, origin, Color(spark.tint, opacity), 1.7, true)
+		var close_to_pilot := spark.position.distance_squared_to(pilot) < PILOT_CLEARANCE_SQ
+		var opacity := spark.life / spark.duration * (0.26 if close_to_pilot else 0.84)
+		if opacity > 0.08:
+			canvas.draw_line(origin - spark.velocity * (0.019 if close_to_pilot else 0.031), origin, Color(spark.tint, opacity), 1.6, true)
 
 
-func render_capital_breaks(canvas: Node2D, offset: Vector2, view: Rect2) -> void:
+func render_capital_breaks(canvas: Node2D, offset: Vector2, view: Rect2, pilot: Vector2) -> void:
 	for wreck in _collapses:
 		var center := wreck.position + offset
 		var body := maxf(wreck.frame.size.x, wreck.frame.size.y)
@@ -158,7 +193,9 @@ func render_capital_breaks(canvas: Node2D, offset: Vector2, view: Rect2) -> void
 			continue
 		var progress := 1.0 - wreck.life / COLLAPSE_LIFETIME
 		var outward := sqrt(progress) * body
-		var opacity := 1.0 - progress
+		var clearance := wreck.position.distance_to(pilot)
+		var separation := lerpf(0.51, 1.0, smoothstep(42.0, body, clearance))
+		var opacity := (1.0 - progress) * separation
 		if wreck.texture != null:
 			canvas.draw_set_transform(center + Vector2(12.0, 17.0) * progress, wreck.heading + progress * 0.22)
 			var fade := opacity * (0.77 if progress < 0.5 else 0.64)
@@ -168,6 +205,11 @@ func render_capital_breaks(canvas: Node2D, offset: Vector2, view: Rect2) -> void
 		canvas.draw_arc(center, circum, 0.0, TAU, 44, Color(wreck.tint, opacity * 0.81), 2.4, true)
 		var inner := maxf(4.0, outward * 0.55)
 		canvas.draw_arc(center, inner, 0.0, TAU, 36, Color(WHITE_HOT, opacity * 0.44), 1.2, true)
+		if progress < 0.42:
+			var flare := Vector2.ONE * (28.0 + progress * body * 0.77)
+			var energy := (1.0 - progress / 0.42) * separation
+			canvas.draw_texture_rect_region(LIGHTS, Rect2(center - flare * 0.5, flare), CONTACT,
+				Color(wreck.tint.lightened(0.48), energy))
 		for index in 4:
 			var angle := wreck.heading + index * TAU / 4.0 + progress * 0.37
 			var direction := Vector2.from_angle(angle)

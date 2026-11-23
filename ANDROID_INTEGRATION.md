@@ -1,6 +1,6 @@
-# Galaxy Strike · Android 0.7.0
+# Galaxy Strike · Android 0.7.1
 
-Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wersja aplikacji to **0.7.0**, kod wersji to **8**, a oba presety Androida ustawiają **target SDK 36** i **min SDK 24**. ABI obejmują arm64-v8a oraz x86_64. Zachowaj ten identyfikator w Google Play Console i AdMob. Publiczne płatności pozostają wyłączone.
+Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wersja aplikacji to **0.7.1**, kod wersji to **9**, a oba presety Androida ustawiają **target SDK 36** i **min SDK 24**. ABI obejmują arm64-v8a oraz x86_64. Zachowaj ten identyfikator w Google Play Console i AdMob. Publiczne płatności pozostają wyłączone.
 
 ## Zweryfikowane wersje
 
@@ -72,7 +72,7 @@ godot --headless --export-release "Android Play AAB" build/android/GalaxyStrike-
 unset GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD
 ```
 
-Zweryfikuj podpis poleceniami `jarsigner -verify` i `bundletool validate`. Porównaj odcisk certyfikatu z kluczem przesyłania w Play Console. Zwiększ `version/code` w obu presetach, jeśli Play Console widziało już numer **8**. [Instrukcja publikacji](release/PUBLICATION_PL.md)
+Zweryfikuj podpis poleceniami `jarsigner -verify` i `bundletool validate`. Porównaj odcisk certyfikatu z kluczem przesyłania w Play Console. Zwiększ `version/code` w obu presetach, jeśli Play Console widziało już numer **9**. [Instrukcja publikacji](release/PUBLICATION_PL.md)
 
 ## Testy projektu
 
@@ -81,4 +81,4 @@ python3 -m unittest discover -s server -v
 bash tests/run.sh --full-mission
 ```
 
-Test serwera korzysta z kontrolowanych odpowiedzi Publisher API. Test Godot obejmuje przywracanie salda, błędy zapisu i niedostępność sieci. Wersja stacjonarna korzysta z oznaczonego symulatora. Stan prób na telefonie i wyniki eksportu znajdują się w raporcie. [Raport 0.7.0](VERSION_0_7_0.md) · [Scenariusze Android](release/ANDROID_QA_0_7_PL.md)
+Test serwera korzysta z kontrolowanych odpowiedzi Publisher API. Test Godot obejmuje przywracanie salda, błędy zapisu i niedostępność sieci. Wersja stacjonarna korzysta z oznaczonego symulatora. Stan prób na telefonie i wyniki eksportu znajdują się w raporcie. [Raport 0.7.1](VERSION_0_7_1.md) · [Scenariusze Android](release/ANDROID_QA_0_7_PL.md)

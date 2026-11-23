@@ -34,12 +34,12 @@ const VIOLET := Color("#b995ff")
 const WARM := Color("#ff725c")
 const WHITE_HOT := Color("#e7fcff")
 const SHIP_ART: Array[String] = [
-	"res://assets/art/enemy_scout.png",
+	"res://assets/art/enemy_scout_flight.png",
 	"res://assets/art/enemy_lancer.png",
 	"res://assets/art/enemy_bastion.png",
-	"res://assets/art/enemy_razor.png",
+	"res://assets/art/enemy_razor_flight.png",
 	"res://assets/art/enemy_mine.png",
-	"res://assets/art/enemy_elite.png",
+	"res://assets/art/enemy_elite_flight.png",
 	"res://assets/art/miniboss.png",
 	"res://assets/art/boss.png"
 ]
@@ -48,6 +48,7 @@ const SHIP_TINTS: Array[Color] = [
 	Color("#ecc571"), Color("#ee91c5"), Color("#ffb580"), Color("#c2a4ff"),
 ]
 const SHIP_BOUNDS: Array[float] = [62.0, 71.0, 96.0, 58.0, 89.0, 99.0, 153.0, 222.0]
+const FLIGHT_ART_MARGIN_SCALE := 346.0 / 320.0
 
 enum EnemyKind { SCOUT, LANCER, BASTION, RAZOR, MINELAYER, ELITE, MINIBOSS, BOSS }
 enum ShotKind { PULSE, MISSILE, HOSTILE, MINE, SHARD }
@@ -194,7 +195,8 @@ func _ready() -> void:
 	for kind in SHIP_ART.size():
 		var texture := _texture(SHIP_ART[kind])
 		_textures.append(texture)
-		var size := _ship_size(texture, SHIP_BOUNDS[kind]) if texture != null else Vector2.ZERO
+		var scale_margin := FLIGHT_ART_MARGIN_SCALE if kind in [EnemyKind.SCOUT, EnemyKind.RAZOR, EnemyKind.ELITE] else 1.0
+		var size := _ship_size(texture, SHIP_BOUNDS[kind] * scale_margin) if texture != null else Vector2.ZERO
 		_enemy_frames.append(Rect2(-size * 0.5, size))
 	if _distant_star_tile == null:
 		_seed_sky()
@@ -902,22 +904,35 @@ func _draw() -> void:
 	_draw_sky(viewport)
 	draw_rect(Rect2(ARENA.position + offset, ARENA.size), _sector["boundary"], false, 1.6)
 	_draw_orbs(offset, frame)
-	_fx.render_capital_breaks(self, offset, frame)
-	_fx.render(self, offset, frame.grow(20.0))
+	_fx.render_capital_breaks(self, offset, frame, _player_position)
+	_fx.render(self, offset, frame.grow(20.0), _player_position)
 	var near_view := frame.grow(140.0)
 	var escort_view := frame.grow(77.0)
+	var miniboss: Enemy
+	var flagship: Enemy
 	for enemy in _enemies:
-		if enemy.kind >= EnemyKind.MINIBOSS:
-			_director.draw_telegraph(self, enemy, offset, _mission_time, enemy.kind == EnemyKind.BOSS)
 		var origin := enemy.position + offset
-		var visible := near_view if enemy.kind >= EnemyKind.MINIBOSS else escort_view
-		if visible.has_point(origin):
+		if enemy.kind == EnemyKind.BOSS:
+			flagship = enemy
+		elif enemy.kind == EnemyKind.MINIBOSS:
+			miniboss = enemy
+		elif escort_view.has_point(origin):
 			_draw_enemy(enemy, origin)
+	if miniboss != null and near_view.has_point(miniboss.position + offset):
+		_draw_enemy(miniboss, miniboss.position + offset)
+	if flagship != null and near_view.has_point(flagship.position + offset):
+		_draw_enemy(flagship, flagship.position + offset)
+	if flagship != null or not _fx._collapses.is_empty():
+		_fx.pilot_backlight(self, _player_position + offset)
 	for shot in _shots:
 		var origin := shot.position + offset
 		if near_view.has_point(origin):
 			_draw_shot(shot, origin)
 	_arsenal.draw_weapons(self, offset, frame)
+	if miniboss != null:
+		_director.draw_telegraph(self, miniboss, offset, _mission_time, false)
+	if flagship != null:
+		_director.draw_telegraph(self, flagship, offset, _mission_time, true)
 	_draw_player(_player_position + offset)
 	_draw_steering()
 	if _hull_flash > 0.0:
@@ -1014,25 +1029,27 @@ func _draw_shot(shot: Shot, origin: Vector2) -> void:
 		draw_line(origin - Vector2(6.0, 6.0), origin + Vector2(6.0, 6.0), Color(WARM, pulse), 1.9, true)
 		draw_line(origin - Vector2(-6.0, 6.0), origin + Vector2(-6.0, 6.0), Color(WARM, pulse), 1.9, true)
 		return
-	var forward := shot.velocity.normalized()
 	var tint := CYAN
 	var tail := 29.0
-	var width := 2.1
-	if shot.kind == ShotKind.HOSTILE:
-		tint = WARM
-		tail = 18.0
-		width = 2.8
+	var width := 8.0
+	var hostile := shot.kind == ShotKind.HOSTILE
+	if hostile:
+		tint = Color.WHITE
+		tail = 22.0
+		width = 11.0
 	elif shot.kind == ShotKind.MISSILE:
 		tint = VIOLET
 		tail = 40.0
-		width = 3.4
+		width = 13.0
 	elif shot.kind == ShotKind.SHARD:
 		tint = Color("#efb4ff")
-		tail = 18.0
-		width = 2.9
-	draw_line(origin - forward * tail, origin + forward * 5.0, Color(tint, 0.24), width * 3.3, true)
-	draw_line(origin - forward * tail * 0.68, origin + forward * 5.0, tint, width * 1.4, true)
-	draw_line(origin - forward * tail * 0.25, origin + forward * 5.0, WHITE_HOT, width * 0.63, true)
+		tail = 20.0
+		width = 10.0
+	if shot.position.distance_squared_to(_player_position) < 74.0 * 74.0:
+		tail *= 0.72
+		width *= 0.78
+		tint.a = 1.0 if hostile else 0.60
+	_fx.projectile(self, origin, shot.velocity.angle(), tail, width, tint.lightened(0.24), hostile)
 
 
 func _ship_size(texture: Texture2D, max_dimension: float) -> Vector2:

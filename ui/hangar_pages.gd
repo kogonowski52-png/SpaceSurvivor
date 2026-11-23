@@ -6,6 +6,7 @@ const Glyph := preload("res://ui/hangar_glyph.gd")
 const Display := preload("res://assets/fonts/Oxanium.ttf")
 const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
 const SPACE := preload("res://assets/art/arena_nebula.jpg")
+const Inspection := preload("res://ui/hull_inspection.gdshader")
 const SLOT_NAMES := {
 	"weapon": "Broń", "armor": "Pancerz", "engine": "Silnik",
 	"reactor": "Reaktor", "drone": "Dron",
@@ -32,40 +33,45 @@ func build(tab: String, content: VBoxContainer, data: Dictionary, on_action: Cal
 	content.add_theme_constant_override("separation", 12)
 	match tab:
 		"inventory":
-			_inventory(content, profile, on_action)
+			var highlighted := str(data.get("highlight_value", "")) if data.get("highlight") == "equip" else ""
+			_inventory(content, profile, on_action, highlighted)
 		"sectors":
 			_sectors(content, profile, on_action)
 		"rewards":
 			_rewards(content, data, profile, on_action)
 
 
-func _inventory(parent: VBoxContainer, profile: Dictionary, action: Callable) -> void:
+func _inventory(parent: VBoxContainer, profile: Dictionary, action: Callable, highlighted: String) -> void:
 	var ship_id := str(profile.get("ship_id", "peregrine"))
 	var ship: Dictionary = Catalog.SHIPS.get(ship_id, Catalog.SHIPS["peregrine"])
 	var equipped_by_ship: Dictionary = profile.get("equipped", {})
 	var equipped: Dictionary = equipped_by_ship.get(ship_id, {})
-	var section := _panel(parent)
-	var heading := _row(section, 10)
-	_copy(heading, str(ship["title"]).to_upper(), 24, Palette.TEXT, true, true)
-	_copy(heading, "%d / %d GNIAZD" % [equipped.size(), Catalog.SLOTS.size()], 14, Palette.CYAN, true)
+	var heading := _row(parent, 10)
+	_copy(heading, "Na pokładzie · " + str(ship["title"]), 25, Palette.TEXT, true, true)
+	_copy(heading, "%d / %d GNIAZD" % [equipped.size(), Catalog.SLOTS.size()], 16, Palette.CYAN, true)
+	var section := _stack(parent, 6)
 	for slot in Catalog.SLOTS:
-		var line := _row(section, 10)
 		var id := str(equipped.get(slot, ""))
 		var spec: Dictionary = Catalog.ITEMS.get(id, {})
 		var filled := not spec.is_empty()
 		var accent := _rarity(str(spec.get("rarity", "common")))
-		_icon(line, slot, accent if filled else Palette.OUTLINE.lightened(0.28), id, 37,
+		var slot_body := _panel(section, accent, filled, 8)
+		var line := _row(slot_body, 10)
+		var symbol := _icon(line, slot, accent if filled else Palette.OUTLINE.lightened(0.38), id, 43,
 			spec.get("rarity") == "legendary")
 		var text := _stack(line, 0, true)
-		_copy(text, str(SLOT_NAMES[slot]).to_upper(), 12, accent if filled else Palette.MUTED, true)
-		_copy(text, str(spec.get("title", "Moduł fabryczny")), 18, Palette.TEXT if filled else Palette.MUTED)
+		_copy(text, str(SLOT_NAMES[slot]).to_upper(), 15, accent if filled else Palette.MUTED, true)
+		_copy(text, str(spec.get("title", "Moduł fabryczny")), 21, Palette.TEXT if filled else Palette.MUTED)
 		if filled:
-			_button(line, "Unequip_" + slot, "ZDEJMIJ", action.bind("unequip", slot), Palette.MUTED, 91, 14)
+			_button(line, "Unequip_" + slot, "ZDEJMIJ", action.bind("unequip", slot), Palette.MUTED, 104, 16)
+		if filled and id == highlighted:
+			symbol.pivot_offset = symbol.custom_minimum_size * 0.5
+			_reveal_motion(slot_body, symbol, accent, false)
 
 	var owned: Array = profile.get("inventory", [])
 	var header := _row(parent, 8)
 	_copy(header, "Magazyn", 27, Palette.TEXT, true, true)
-	_copy(header, "%d / %d MODUŁÓW" % [owned.size(), Catalog.ITEMS.size()], 14, Palette.CYAN, true)
+	_copy(header, "%d / %d MODUŁÓW" % [owned.size(), Catalog.ITEMS.size()], 16, Palette.CYAN, true)
 	if owned.is_empty():
 		_copy(_panel(parent), "Zdobywaj skrzynie w misjach i odbieraj je w zakładce Nagrody.", 19, Palette.MUTED)
 	var ordered: Array[String] = []
@@ -98,13 +104,13 @@ func _item_card(parent: Container, id: String, spec: Dictionary, equipped: bool,
 	var rare := rarity != "common"
 	var panel := _panel(parent, accent, rare)
 	var line := _row(panel, 11)
-	_icon(line, spec["slot"], accent, id, 57, rarity == "legendary")
-	var text := _stack(line, 2, true)
+	_icon(line, spec["slot"], accent, id, 60, rarity == "legendary")
+	var text := _stack(line, 4, true)
 	var labels := _row(text, 6)
-	_copy(labels, str(SLOT_NAMES[spec["slot"]]).to_upper(), 12, Palette.MUTED, true)
+	_copy(labels, str(SLOT_NAMES[spec["slot"]]).to_upper(), 15, Palette.MUTED, true)
 	_chip(labels, rarity.to_upper(), accent)
-	_copy(text, spec["title"], 22, Palette.TEXT, true)
-	_copy(text, spec["description"], 18, Palette.MUTED)
+	_copy(text, spec["title"], 24, Palette.TEXT, true)
+	_copy(text, spec["description"], 20, Palette.MUTED)
 	if equipped:
 		var status := _row(text, 5)
 		_chip(status, "NA POKŁADZIE", Palette.CYAN)
@@ -114,7 +120,7 @@ func _item_card(parent: Container, id: String, spec: Dictionary, equipped: bool,
 		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		controls.add_child(spacer)
-		_button(controls, "Equip_" + id, "WYPOSAŻ", action.bind("equip", id), accent, 120)
+		_button(controls, "Equip_" + id, "WYPOSAŻ", action.bind("equip", id), accent, 136, 17)
 
 
 func _sectors(parent: VBoxContainer, profile: Dictionary, action: Callable) -> void:
@@ -173,23 +179,7 @@ func _rewards(parent: VBoxContainer, data: Dictionary, profile: Dictionary, acti
 		_button(box, "OpenCrate", "OTWÓRZ SKRZYNIĘ", action.bind("open_crate", ""), Palette.AMBER, 0, 16, true)
 	var loot_id := str(data.get("loot", ""))
 	if Catalog.ITEMS.has(loot_id):
-		var loot: Dictionary = Catalog.ITEMS[loot_id]
-		var tier := str(loot["rarity"])
-		var color := _rarity(tier)
-		var reveal := _panel(parent, color, true)
-		reveal.get_parent().name = "CrateResult"
-		var detail := _row(reveal, 10)
-		var badge := _icon(detail, loot["slot"], color, loot_id, 66, tier == "legendary")
-		var details := _stack(detail, 3, true)
-		var marks := _row(details, 7)
-		_copy(marks, "Z ODZYSKU", 13, Palette.MUTED, true)
-		_chip(marks, tier.to_upper(), color)
-		_copy(details, str(loot["title"]), 23, Palette.TEXT, true)
-		_copy(details, str(loot["description"]), 17, Palette.MUTED)
-		if data.get("highlight", "") == "open_crate":
-			var animation := reveal.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-			animation.tween_property(reveal, "modulate:a", 1.0, 0.33).from(0.2)
-			animation.parallel().tween_property(badge, "scale", Vector2.ONE, 0.42).from(Vector2(0.78, 0.78))
+		_recovered_module(parent, loot_id, data.get("highlight") == "open_crate")
 
 	_calendar(parent, data.get("calendar", []), action)
 	_copy(parent, "Codzienne zadania", 26, Palette.TEXT, true)
@@ -200,34 +190,111 @@ func _rewards(parent: VBoxContainer, data: Dictionary, profile: Dictionary, acti
 		_milestone(parent, task, "claim_achievement", "ClaimAchievement_", action)
 
 
+func _recovered_module(parent: VBoxContainer, loot_id: String, animate: bool) -> void:
+	var loot: Dictionary = Catalog.ITEMS[loot_id]
+	var tier := str(loot["rarity"])
+	var color := _rarity(tier)
+	var slot := str(loot["slot"])
+	var legendary := tier == "legendary"
+	var premium := legendary or tier == "epic"
+	var panel := _panel(parent, color, true, 15 if premium else 13)
+	panel.get_parent().name = "CrateResult"
+	if premium:
+		var plate := panel.get_parent() as PanelContainer
+		var style := plate.get_theme_stylebox("panel") as StyleBoxFlat
+		style.bg_color = Color("#211c1af7") if legendary else Color("#18162cf7")
+		style.set_border_width(SIDE_TOP, 2)
+	var detail := _row(panel, 13)
+	var badge: Control
+	if premium:
+		var art := TextureRect.new()
+		art.texture = load("res://assets/art/modules/%s.webp" % slot)
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		art.custom_minimum_size = Vector2(160, 141) if legendary else Vector2(130, 115)
+		art.pivot_offset = art.custom_minimum_size * 0.5
+		var gloss := ShaderMaterial.new()
+		gloss.shader = Inspection
+		gloss.set_shader_parameter("accent", color)
+		art.material = gloss
+		detail.add_child(art)
+		if animate:
+			art.create_tween().tween_method(func(value: float) -> void: gloss.set_shader_parameter("sweep", value), -0.16, 1.48, 1.0)
+		badge = art
+	else:
+		badge = _icon(detail, slot, color, loot_id, 66)
+		badge.pivot_offset = Vector2(33, 33)
+	var details := _stack(detail, 5, true)
+	details.alignment = BoxContainer.ALIGNMENT_CENTER
+	_copy(details, tier.to_upper() + "  ·  " + str(SLOT_NAMES[slot]).to_upper(), 16, color, true)
+	_copy(details, str(loot["title"]), 28 if premium else 24, Palette.TEXT, true)
+	_copy(details, str(loot["description"]), 20 if premium else 18, Palette.MUTED)
+	if animate:
+		_reveal_motion(panel, badge, color, premium)
+
+
+func _reveal_motion(body: VBoxContainer, artwork: Control, color: Color, premium: bool) -> void:
+	var plate := body.get_parent() as PanelContainer
+	var style := plate.get_theme_stylebox("panel") as StyleBoxFlat
+	var duration := 0.64 if premium else 0.41
+	var animation := plate.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	animation.tween_property(style, "border_color", style.border_color, duration).from(color.lightened(0.26))
+	animation.parallel().tween_property(style, "bg_color", style.bg_color, duration).from(style.bg_color.lerp(color, 0.23))
+	animation.parallel().tween_property(artwork, "scale", Vector2.ONE, duration).from(Vector2.ONE * 0.83)
+	animation.parallel().tween_property(artwork, "modulate:a", 1.0, duration * 0.67).from(0.3)
+
+
 func _calendar(parent: VBoxContainer, days: Array, action: Callable) -> void:
 	if days.is_empty():
 		return
 	var section := _panel(parent)
-	_copy(section, "Kalendarz lotów", 24, Palette.TEXT, true)
+	var heading := _row(section, 8)
+	_copy(heading, "Kalendarz lotów", 27, Palette.TEXT, true, true)
+	var completed := 0
+	for day: Dictionary in days:
+		completed += int(day.get("claimed", false))
+	_copy(heading, "ODEBRANO  %d / %d" % [completed, days.size()], 15, Palette.MUTED, true)
+	var active: Dictionary = days[mini(completed, days.size() - 1)]
+	var active_id := str(active.get("id", ""))
+	var available := bool(active.get("available", false))
+	var claimed := bool(active.get("claimed", false))
+	var color := Palette.CYAN if available else Palette.VIOLET
+	var featured := _panel(section, color, true, 11)
+	var topline := _row(featured, 9)
+	_copy(topline, "Dzień %s" % active_id, 27, Palette.TEXT, true, true)
+	_copy(topline, "DO ODBIORU" if available else ("ODEBRANO" if claimed else "NASTĘPNA NAGRODA"), 15, color, true)
+	_copy(featured, "   ·   ".join(_calendar_prizes(active)), 20, Palette.TEXT)
+	if available and not claimed:
+		_button(featured, "ClaimCalendar_" + active_id, "ODBIERZ NAGRODĘ", action.bind("claim_calendar", active_id), color, 0, 17, true)
 	var grid := GridContainer.new()
-	grid.columns = 4
+	grid.columns = 3
 	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	grid.add_theme_constant_override("h_separation", 6)
 	grid.add_theme_constant_override("v_separation", 6)
 	section.add_child(grid)
-	for day in days:
+	for day: Dictionary in days:
 		var id := str(day.get("id", ""))
-		var available := bool(day.get("available", false))
-		var claimed := bool(day.get("claimed", false))
-		var tile := _panel(grid, Palette.CYAN if available else Palette.MUTED, available, 7)
+		if id == active_id:
+			continue
+		var day_claimed := bool(day.get("claimed", false))
+		var final := int(day.get("crystals", 0)) > 0
+		var accent := Palette.VIOLET if final else (Palette.SUCCESS if day_claimed else Palette.MUTED)
+		var tile := _panel(grid, accent, final or day_claimed, 8)
 		tile.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_copy(tile, "DZIEŃ %s" % id, 13, Palette.CYAN if available else Palette.MUTED, true)
-		var prize := "%d Credits\n%d mat." % [int(day.get("coins", 0)), int(day.get("materials", 0))]
-		if int(day.get("crates", 0)) > 0:
-			prize += "\n+%d skrz." % int(day["crates"])
-		if int(day.get("crystals", 0)) > 0:
-			prize += "\n+%d Crystals" % int(day["crystals"])
-		_copy(tile, prize, 15, Palette.TEXT)
-		if available and not claimed:
-			_button(tile, "ClaimCalendar_" + id, "ODBIERZ", action.bind("claim_calendar", id), Palette.CYAN, 0, 14, true)
-		elif claimed:
-			_chip(_row(tile, 0), "ODEBRANO", Palette.CYAN)
+		_copy(tile, "DZIEŃ %s" % id, 16, accent, true)
+		_copy(tile, "\n".join(_calendar_prizes(day)), 17, Palette.TEXT)
+		if day_claimed:
+			_chip(_row(tile, 0), "ODEBRANO", accent)
+
+
+func _calendar_prizes(day: Dictionary) -> PackedStringArray:
+	var prizes := PackedStringArray(["%d Credits" % int(day.get("coins", 0)), "%d mat." % int(day.get("materials", 0))])
+	if int(day.get("crates", 0)) > 0:
+		prizes.append("+%d skrz." % int(day["crates"]))
+	if int(day.get("crystals", 0)) > 0:
+		prizes.append("+%d Crystals" % int(day["crystals"]))
+	return prizes
 
 
 func _milestone(parent: Container, task: Dictionary, command: String, button_prefix: String, action: Callable) -> void:
@@ -271,7 +338,7 @@ func _chip(parent: Container, title: String, accent: Color) -> void:
 	style.content_margin_bottom = 2
 	badge.add_theme_stylebox_override("panel", style)
 	parent.add_child(badge)
-	var text := _copy(badge, title, 12, accent.lightened(0.13), true)
+	var text := _copy(badge, title, 13, accent.lightened(0.13), true)
 	text.autowrap_mode = TextServer.AUTOWRAP_OFF
 
 
@@ -339,7 +406,7 @@ func _button(parent: Container, name: String, label: String, task: Callable, acc
 	var button := Button.new()
 	button.name = name
 	button.text = label
-	button.custom_minimum_size = Vector2(width, 42)
+	button.custom_minimum_size = Vector2(width, 48)
 	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.add_theme_font_override("font", _display)

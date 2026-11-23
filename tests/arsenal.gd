@@ -125,6 +125,8 @@ func _test_laser() -> void:
 	arsenal.step(arena, 0.01)
 	_check(front.hp < 500.0 and rear.hp < 500.0 and off_axis.hp == 500.0,
 		"laser beam pierces two aligned enemies and misses an enemy outside its path")
+	_check(arsenal._laser_impact_life > 0.0 and is_equal_approx(arsenal._laser_impact.x, front.position.x - front.radius),
+		"the visible laser impact marks the nearest hull while damage continues through it")
 	var hp: float = front.hp
 	arsenal.step(arena, 0.17)
 	_check(front.hp < hp and arsenal._laser_remaining > 0.0, "active laser repeatedly damages targets on subsequent physics ticks")
