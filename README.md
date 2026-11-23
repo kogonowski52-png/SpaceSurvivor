@@ -13,6 +13,12 @@ Statek sam atakuje. Zbieraj XP i przy każdym awansie wybieraj jedną z trzech k
 | Tesla Chain | Łuk przeskakuje między celami. Ewolucja uruchamia dodatkowe odgałęzienia. |
 | Drone Swarm | Drony eskorty wyszukują i atakują cele wokół statku. |
 
+## Hangar i profil pilota
+
+**Hangar** na ekranie tytułowym otwiera podgląd aktywnego statku i warsztat. Ulepszenia kadłuba, napędu i uzbrojenia są osobne dla każdego z czterech statków. W **Ekwipunku** można montować znalezione moduły w pięciu slotach. **Sektory** wybierają trasę następnego lotu, a **Nagrody** pozwalają otworzyć skrzynie i odebrać zadania, osiągnięcia oraz nagrody z siedmiodniowego kalendarza. [Założenia i symulacja pierwszych pięciu godzin](BALANCE.md)
+
+Postępy zapisują się automatycznie po zakupie, wyposażeniu, odbiorze nagrody i zakończeniu lotu. Profil w wersji 2 używa dwóch kopii o kolejnych numerach transakcji, weryfikowanych sumą SHA-256. Zapis trafia najpierw do pliku tymczasowego, a po weryfikacji zastępuje starszą kopię. Gra wczytuje najnowszą poprawną kopię. Pierwszy start z dawnym zapisem `flight_profile.cfg` przenosi rdzenie odzysku do materiałów i zachowuje poprzedni plik. Rozgrywka i postęp są lokalne, bez konta i połączenia sieciowego.
+
 ## Uruchomienie
 
 Zaimportuj `project.godot` w Godot **4.7.2 stable** i uruchom projekt klawiszem **F5**. Na komputerze steruj **WASD** lub **strzałkami**. **Esc** i **P** wstrzymują i wznawiają lot. Na telefonie dotknij pola gry i przytrzymaj palec po przeciągnięciu w wybranym kierunku. Uniesienie palca zwalnia wirtualny drążek. W prawym górnym rogu jest przycisk pauzy.

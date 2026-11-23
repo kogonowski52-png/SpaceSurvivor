@@ -6,12 +6,15 @@ signal resume_requested
 signal restart_requested
 signal menu_requested
 signal upgrade_selected(id: String)
+signal hangar_requested
+signal hangar_action(action: String, value: String)
 
 const Palette = preload("res://ui/palette.gd")
 const FlightGlyph = preload("res://ui/flight_glyph.gd")
 const Body = preload("res://assets/fonts/Barlow-Medium.ttf")
 const Display = preload("res://assets/fonts/Oxanium.ttf")
 const Mission := preload("res://data/missions/peryhelium.tres")
+const Hangar := preload("res://ui/hangar.gd")
 const PAGE_MARGIN := 28.0
 const RARITIES := {
 	"common": { "title": "POSPOLITA", "accent": Palette.MUTED },
@@ -23,6 +26,7 @@ const RARITIES := {
 var _headline := FontVariation.new()
 var _detail := FontVariation.new()
 var _menu: Control
+var _hangar: Hangar
 var _hud: Control
 var _modal: Control
 var _pause_button: Button
@@ -63,8 +67,9 @@ func _ready() -> void:
 	theme.set_color("font_color", "TooltipLabel", Palette.TEXT)
 
 
-func show_menu() -> void:
+func show_menu(sortie: Dictionary = {}) -> void:
 	_clear_modal()
+	_drop_hangar()
 	_drop(_hud)
 	_hud = null
 	_telemetry = {}
@@ -120,26 +125,51 @@ func show_menu() -> void:
 	var mission := _column(1)
 	mission.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(mission)
-	_tag(mission, "MISJA 01", Palette.MUTED, 13)
-	_tag(mission, Mission.title.to_upper(), Palette.TEXT, 31)
-	var time := _tag(top, _clock(Mission.duration_seconds), Palette.CYAN, 24)
+	_tag(mission, "SEKTOR MISJI", Palette.MUTED, 13)
+	_tag(mission, str(sortie.get("sector_title", Mission.title)).to_upper(), Palette.TEXT, 31)
+	var duration := float(sortie.get("duration", Mission.duration_seconds))
+	var time := _tag(top, _clock(duration), Palette.CYAN, 24)
 	time.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_body(details, "Rozwiń uzbrojenie i odeprzyj kolejne fale floty.", 20)
 
-	var launch := _button(bottom, "LaunchButton", "ROZPOCZNIJ MISJĘ", launch_requested.emit, true)
-	var arrow := _glyph(launch, "arrow", Palette.NIGHT, Vector2(32, 32))
-	arrow.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
-	arrow.offset_left = -54.0
-	arrow.offset_right = -22.0
-	arrow.offset_top = -16.0
-	arrow.offset_bottom = 16.0
+	var actions := _row(10)
+	bottom.add_child(actions)
+	var launch := _button(actions, "LaunchButton", "ROZPOCZNIJ MISJĘ", launch_requested.emit, true)
+	launch.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var hangar := _button(actions, "HangarButton", "HANGAR", hangar_requested.emit)
+	hangar.custom_minimum_size.x = 132.0
 
 	var controls := _body(bottom, "Przeciągnij palcem • WASD / strzałki na PC", 18)
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
+func show_hangar(data: Dictionary, tab: String = "overview") -> void:
+	_clear_modal()
+	_drop(_menu)
+	_menu = null
+	_drop(_hud)
+	_hud = null
+	_telemetry = {}
+	if not is_instance_valid(_hangar):
+		_hangar = Hangar.new()
+		_hangar.name = "Hangar"
+		_hangar.action_requested.connect(hangar_action.emit)
+		add_child(_hangar)
+	_hangar.refresh(data, tab)
+
+
+func hangar_tab() -> String:
+	return _hangar.current_tab if is_instance_valid(_hangar) else "overview"
+
+
+func _drop_hangar() -> void:
+	_drop(_hangar)
+	_hangar = null
+
+
 func show_hud() -> void:
 	_clear_modal()
+	_drop_hangar()
 	_drop(_menu)
 	_menu = null
 	if not is_instance_valid(_hud):
@@ -180,14 +210,14 @@ func show_result(data: Dictionary) -> void:
 	var won := bool(data.get("won", false))
 	var elapsed := float(data.get("seconds", 0.0))
 	var accent := Palette.CYAN if won else Palette.DANGER
-	_tag(stack, Mission.title.to_upper(), accent, 16)
+	_tag(stack, str(data.get("sector_title", Mission.title)).to_upper(), accent, 16)
 	var title := "MISJA UKOŃCZONA" if won else "STATEK UTRACONY"
 	var subtitle := "Przetrwano atak floty. Trasa jest otwarta." if won else "Sygnał statku zanikł przed końcem misji."
 	if data.get("boss_defeated", false):
-		subtitle = "Leviathan został zniszczony."
-	elif not won and elapsed >= Mission.duration_seconds:
+		subtitle = "Okręt dowodzenia został zniszczony."
+	elif not won and elapsed >= float(data.get("duration", Mission.duration_seconds)):
 		title = "CZAS UPŁYNĄŁ"
-		subtitle = "Leviathan pozostał w sektorze."
+		subtitle = "Okręt dowodzenia pozostał w sektorze."
 	_heading(stack, title, subtitle, accent)
 	_spacer(stack, 5)
 	var stats := _row(8)
@@ -195,7 +225,16 @@ func show_result(data: Dictionary) -> void:
 	_stat(stats, "CZAS LOTU", _clock(elapsed))
 	_stat(stats, "ZESTRZELENIA", str(data.get("kills", 0)))
 	_stat(stats, "POZIOM", str(data.get("level", 1)))
-	if data.has("reward"):
+	if data.has("coins"):
+		var loot := _row(8)
+		loot.name = "RewardRow"
+		stack.add_child(loot)
+		_stat(loot, "KREDYTY", "+%d" % int(data.get("coins", 0)))
+		_stat(loot, "MATERIAŁY", "+%d" % int(data.get("materials", 0)))
+		_stat(loot, "SKRZYNIE", "+%d" % int(data.get("crates", 0)))
+		if not data.get("ok", true):
+			_body(stack, "Zapis nagrody nie powiódł się.", 19, Palette.DANGER)
+	elif data.has("reward"):
 		var salvage := _hud_cell(stack)
 		salvage.get_parent().name = "RewardRow"
 		var reward := _row(9)
@@ -207,7 +246,8 @@ func show_result(data: Dictionary) -> void:
 		var total := _tag(reward, "+%d" % int(data["reward"]), Palette.AMBER, 27)
 		total.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_spacer(stack, 5)
-	_button(stack, "RestartButton", "LEĆ PONOWNIE", restart_requested.emit, true)
+	_button(stack, "ResultHangarButton", "WRÓĆ DO HANGARU", hangar_requested.emit, true)
+	_button(stack, "RestartButton", "LEĆ PONOWNIE", restart_requested.emit)
 	_button(stack, "MenuButton", "MENU GŁÓWNE", menu_requested.emit)
 
 

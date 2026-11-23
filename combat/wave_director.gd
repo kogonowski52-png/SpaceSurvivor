@@ -20,6 +20,28 @@ const ENEMY_WEIGHTS := [
 	[6, 5, 4, 5, 4, 4], [5, 6, 6, 5, 5, 5],
 ]
 
+const UMBRA_TIMES := [0.0, 42.0, 96.0, 196.0, 265.0, 348.0, 455.0, 526.0]
+const UMBRA_NAMES := [
+	"Przechwycenie w cieniu", "Gęsta zasłona", "Sieć min", "Aegis w cieniu",
+	"Martwy sektor", "Widmowa eskadra", "Leviathan Umbry", "Ucieczka z cienia",
+]
+const UMBRA_WEIGHTS := [
+	[10, 1, 0, 6, 0, 0], [6, 3, 0, 7, 3, 0], [6, 3, 2, 7, 7, 1],
+	[6, 4, 2, 7, 5, 2], [5, 5, 2, 8, 8, 3], [5, 6, 2, 8, 8, 4],
+	[5, 5, 3, 8, 7, 4], [4, 5, 3, 8, 8, 5],
+]
+
+const ZENITH_TIMES := [0.0, 35.0, 90.0, 180.0, 250.0, 335.0, 435.0, 514.0]
+const ZENITH_NAMES := [
+	"Przednia straż", "Klin pancerny", "Dywizjon elit", "Aegis w natarciu",
+	"Ciężka flota", "Straż Zenithu", "Leviathan Zenithu", "Oblężenie",
+]
+const ZENITH_WEIGHTS := [
+	[10, 1, 3, 1, 0, 0], [6, 4, 7, 3, 1, 2], [5, 4, 7, 4, 2, 5],
+	[5, 5, 7, 4, 3, 6], [4, 5, 8, 4, 3, 8], [4, 5, 9, 4, 4, 9],
+	[4, 6, 9, 4, 4, 9], [4, 6, 10, 5, 5, 11],
+]
+
 var wave := 0
 var arrival_notice := 0.0
 var _miniboss_spawned := false
@@ -27,10 +49,42 @@ var _boss_spawned := false
 var _boss_defeated := false
 var _miniboss_defeated := false
 
+var _wave_times: Array = WAVE_TIMES
+var _wave_names: Array = WAVE_NAMES
+var _enemy_weights: Array = ENEMY_WEIGHTS
+
+
+func configure(sector_id: String) -> void:
+	match sector_id:
+		"umbra":
+			_wave_times = UMBRA_TIMES
+			_wave_names = UMBRA_NAMES
+			_enemy_weights = UMBRA_WEIGHTS
+		"zenith":
+			_wave_times = ZENITH_TIMES
+			_wave_names = ZENITH_NAMES
+			_enemy_weights = ZENITH_WEIGHTS
+		_:
+			_wave_times = WAVE_TIMES
+			_wave_names = WAVE_NAMES
+			_enemy_weights = ENEMY_WEIGHTS
+
+
+func wave_name() -> String:
+	return _wave_names[wave]
+
+
+func miniboss_at() -> float:
+	return _wave_times[3]
+
+
+func boss_at() -> float:
+	return _wave_times[6]
+
 
 func phase_at(time: float) -> int:
-	for index in range(WAVE_TIMES.size() - 1, 0, -1):
-		if time >= WAVE_TIMES[index]:
+	for index in range(_wave_times.size() - 1, 0, -1):
+		if time >= _wave_times[index]:
 			return index
 	return 0
 
@@ -38,10 +92,10 @@ func phase_at(time: float) -> int:
 func update(arena, delta: float) -> void:
 	wave = phase_at(arena._mission_time)
 	arrival_notice = maxf(0.0, arrival_notice - delta)
-	if not _miniboss_spawned and arena._mission_time >= MINIBOSS_AT and arena._mission_time < BOSS_AT:
+	if not _miniboss_spawned and arena._mission_time >= miniboss_at() and arena._mission_time < boss_at():
 		_miniboss_spawned = true
 		_spawn_boss(arena, arena.EnemyKind.MINIBOSS)
-	if not _boss_spawned and arena._mission_time >= BOSS_AT:
+	if not _boss_spawned and arena._mission_time >= boss_at():
 		_boss_spawned = true
 		_spawn_boss(arena, arena.EnemyKind.BOSS)
 
@@ -58,7 +112,7 @@ func _spawn_boss(arena, kind: int) -> void:
 
 
 func next_kind(rng: RandomNumberGenerator) -> int:
-	var weights: Array = ENEMY_WEIGHTS[wave]
+	var weights: Array = _enemy_weights[wave]
 	var roll := rng.randi_range(1, weights.reduce(func(sum: int, weight: int) -> int: return sum + weight, 0))
 	for kind in weights.size():
 		roll -= weights[kind]

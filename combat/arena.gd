@@ -13,6 +13,7 @@ const HULL := preload("res://data/hangar/peregrine.tres")
 const PULSE = HULL.primary_weapon
 const Arsenal := preload("res://combat/arsenal.gd")
 const WaveDirector := preload("res://combat/wave_director.gd")
+const Catalog := preload("res://data/progression_catalog.gd")
 const ARENA := Rect2(-1240.0, -1540.0, 2480.0, 3080.0)
 const PLAYER_RADIUS := 21.0
 const CRUISE_SPEED := 238.0
@@ -85,6 +86,11 @@ var _director := WaveDirector.new()
 var _arsenal := Arsenal.new()
 var _rng := RandomNumberGenerator.new()
 var _duration := float(MISSION.duration_seconds)
+var _ship_id := "peregrine"
+var _sector_id := "peryhelium"
+var _ship: Dictionary = Catalog.SHIPS[_ship_id]
+var _sector: Dictionary = Catalog.SECTORS[_sector_id]
+var _stats := Catalog.build_stats(_ship_id, {}, {})
 var _enemies: Array[Enemy] = []
 var _shots: Array[Shot] = []
 var _xp_orbs: Array[Orb] = []
@@ -111,6 +117,7 @@ var _mouse_drag := false
 var _hp := 100.0
 var _max_hp := 100.0
 var _xp := 0
+var _xp_fraction := 0.0
 var _xp_goal := 12
 var _level := 1
 var _kills := 0
@@ -124,17 +131,48 @@ var _suspended := false
 var _ended := false
 
 
+func configure(sortie: Dictionary) -> void:
+	if is_inside_tree():
+		return
+	var wanted_ship := String(sortie.get("ship_id", "peregrine"))
+	var wanted_sector := String(sortie.get("sector_id", "peryhelium"))
+	_ship_id = wanted_ship if Catalog.SHIPS.has(wanted_ship) else "peregrine"
+	_sector_id = wanted_sector if Catalog.SECTORS.has(wanted_sector) else "peryhelium"
+	_ship = Catalog.SHIPS[_ship_id]
+	_sector = Catalog.SECTORS[_sector_id]
+	_stats = Catalog.build_stats(_ship_id, {}, {})
+	var derived: Dictionary = sortie.get("stats", {})
+	for metric: String in _stats:
+		var supplied: Variant = derived.get(metric)
+		if typeof(supplied) == TYPE_INT or typeof(supplied) == TYPE_FLOAT:
+			_stats[metric] = supplied
+	_duration = float(_sector["duration"])
+	_director.configure(_sector_id)
+
+
 func _ready() -> void:
 	_rng.randomize()
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	get_viewport().size_changed.connect(queue_redraw)
-	_player_texture = HULL.sprite
+	_player_texture = HULL.sprite if _ship_id == "peregrine" else _texture(_ship["sprite"])
+	if _player_texture == null:
+		_player_texture = HULL.sprite
+	_max_hp = float(_stats["max_hp"])
+	_hp = _max_hp
+	for index in int(_stats["drone_rank"]):
+		_loadout.increment("drones")
 	_nebula_texture = _texture("res://assets/art/arena_nebula.jpg")
 	for path in SHIP_ART:
 		_textures.append(_texture(path))
 	_seed_sky()
 	_spawn_enemy(EnemyKind.SCOUT, Vector2(-230.0, -250.0))
-	_spawn_enemy(EnemyKind.SCOUT, Vector2(235.0, 239.0))
+	var starting_escort := EnemyKind.SCOUT
+	match _sector_id:
+		"umbra":
+			starting_escort = EnemyKind.RAZOR
+		"zenith":
+			starting_escort = EnemyKind.BASTION
+	_spawn_enemy(starting_escort, Vector2(235.0, 239.0))
 	_publish_telemetry()
 
 
@@ -252,7 +290,7 @@ func _physics_process(delta: float) -> void:
 
 func _step_player(delta: float) -> void:
 	var keyboard := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var max_speed := CRUISE_SPEED * _loadout.speed_multiplier()
+	var max_speed := CRUISE_SPEED * float(_stats["speed_multiplier"]) * _loadout.speed_multiplier()
 	var direction := keyboard
 	if _touch_index != -1 or _mouse_drag:
 		var pull := _steer_offset.length()
@@ -272,7 +310,8 @@ func _step_player(delta: float) -> void:
 		_engine_timer = 0.052
 		var backward := -Vector2.from_angle(_player_heading)
 		var origin := _player_position + backward * 33.0
-		_fx.burst(origin, Color("#57aaff"), 2, 68.0 + _player_velocity.length() * 0.34, backward)
+		var exhaust: Color = Color("#57aaff") if _ship_id == "peregrine" else _ship["accent"]
+		_fx.burst(origin, exhaust, 2, 68.0 + _player_velocity.length() * 0.34, backward)
 
 
 func _clamp_to_arena(position: Vector2, margin: float) -> Vector2:
@@ -285,7 +324,7 @@ func _step_spawns(delta: float) -> void:
 	if _spawn_timer > 0.0:
 		return
 	var pressure := clampf(_mission_time / _duration, 0.0, 1.0)
-	_spawn_timer = lerpf(0.99, 0.54, pressure)
+	_spawn_timer = lerpf(0.99, 0.54, pressure) * float(_sector["spawn_interval_multiplier"])
 	if _enemies.size() >= MAX_ENEMIES - 2:
 		return
 	_spawn_at_edge(_director.next_kind(_rng))
@@ -373,6 +412,8 @@ func _spawn_enemy(kind: int, position: Vector2) -> void:
 	if kind < EnemyKind.MINIBOSS:
 		enemy.max_hp *= 1.0 + _mission_time / _duration * 0.85
 		enemy.speed *= 1.0 + _mission_time / _duration * 0.24
+	enemy.max_hp *= float(_sector["enemy_hp_multiplier"])
+	enemy.speed *= float(_sector["enemy_speed_multiplier"])
 	enemy.hp = enemy.max_hp
 	_enemies.append(enemy)
 
@@ -635,7 +676,7 @@ func _damage_enemy(index: int, damage: float, direction: Vector2) -> void:
 func _hurt_player(damage: float) -> void:
 	if _hit_cooldown > 0.0 or _ended:
 		return
-	_hp = maxf(0.0, _hp - damage * _loadout.damage_multiplier())
+	_hp = maxf(0.0, _hp - damage * float(_sector["enemy_damage_multiplier"]) * float(_stats["damage_taken_multiplier"]) * _loadout.damage_multiplier())
 	_hit_cooldown = 0.71
 	_fx.burst(_player_position, WARM, 19, 183.0)
 	_fx.ring(_player_position, WARM, 69.0, 0.41)
@@ -663,12 +704,15 @@ func _spawn_orb(position: Vector2, value: int) -> void:
 
 
 func _step_orbs(delta: float) -> void:
-	var magnet_range := _loadout.magnet_range()
+	var magnet_range := _loadout.magnet_range() + float(_stats["magnet_bonus"])
 	for index in range(_xp_orbs.size() - 1, -1, -1):
 		var orb := _xp_orbs[index]
 		var distance := orb.position.distance_to(_player_position)
 		if distance < 24.0:
-			_xp += orb.value
+			var collected := orb.value * float(_stats["xp_multiplier"]) + _xp_fraction
+			var whole := floori(collected + 0.000001)
+			_xp += whole
+			_xp_fraction = maxf(0.0, collected - whole)
 			_fx.burst(orb.position, CYAN, 7, 112.0)
 			_orb_pool.append(orb)
 			_xp_orbs[index] = _xp_orbs.back()
@@ -698,10 +742,11 @@ func _finish(won: bool) -> void:
 	_ended = true
 	_clear_pointer()
 	_publish_telemetry()
-	var reward := _recovered + floori(_kills / 12.0) + _director.wave * 3 + (60 if won else 0)
+	var base_reward := _recovered + floori(_kills / 12.0) + _director.wave * 3 + (60 if won else 0)
+	var reward := floori(base_reward * float(_sector["reward_multiplier"]))
 	mission_ended.emit({
 		"won": won, "seconds": _mission_time, "kills": _kills, "level": _level,
-		"reward": reward, "boss_defeated": _director._boss_defeated,
+		"reward": reward, "boss_defeated": _director._boss_defeated, "sector_id": _sector_id, "ship_id": _ship_id,
 	})
 
 
@@ -717,22 +762,23 @@ func _publish_telemetry() -> void:
 		elif _director.arrival_notice > 0.0:
 			warning = "%s w zasięgu" % _director.boss_name(boss.kind)
 	if warning.is_empty():
-		if not _director._miniboss_spawned and _mission_time >= WaveDirector.MINIBOSS_AT - 6.0 and _mission_time < WaveDirector.MINIBOSS_AT:
+		if not _director._miniboss_spawned and _mission_time >= _director.miniboss_at() - 6.0 and _mission_time < _director.miniboss_at():
 			warning = "Zbliża się Aegis"
-		elif not _director._boss_spawned and _mission_time >= WaveDirector.BOSS_AT - 7.0 and _mission_time < WaveDirector.BOSS_AT:
+		elif not _director._boss_spawned and _mission_time >= _director.boss_at() - 7.0 and _mission_time < _director.boss_at():
 			warning = "Zbliża się Leviathan"
 	telemetry.emit({
 		"hp": _hp, "max_hp": _max_hp, "xp": _xp, "xp_goal": _xp_goal, "level": _level,
 		"seconds": _mission_time, "duration": _duration, "kills": _kills,
-		"wave": _director.wave + 1, "wave_name": WaveDirector.WAVE_NAMES[_director.wave],
+		"wave": _director.wave + 1, "wave_name": _director.wave_name(),
 		"warning": warning, "boss_name": _director.boss_name(boss.kind) if boss else "",
 		"boss_hp": boss.hp if boss else 0.0, "boss_max_hp": boss.max_hp if boss else 0.0,
+		"sector_id": _sector_id, "sector_name": _sector["title"], "ship_id": _ship_id,
 	})
 
 
 func _seed_sky() -> void:
 	var star_rng := RandomNumberGenerator.new()
-	star_rng.seed = 817229
+	star_rng.seed = int(_sector["star_seed"])
 	for index in 126:
 		_distant_stars.append(Vector2(star_rng.randf(), star_rng.randf()))
 	for index in 31:
@@ -744,7 +790,7 @@ func _draw() -> void:
 	var offset := viewport * 0.5 - _camera
 	var frame := Rect2(Vector2.ZERO, viewport)
 	_draw_sky(viewport)
-	draw_rect(Rect2(ARENA.position + offset, ARENA.size), Color("#38657b80"), false, 1.6)
+	draw_rect(Rect2(ARENA.position + offset, ARENA.size), _sector["boundary"], false, 1.6)
 	_draw_orbs(offset, frame)
 	_fx.render(self, offset, frame.grow(20.0))
 	var near_view := frame.grow(140.0)
@@ -774,19 +820,20 @@ func _draw_sky(viewport: Vector2) -> void:
 		var covered := texture_size * fit
 		var slack := (covered - viewport) * 0.5
 		var drift := _camera / ARENA.size * slack * 1.45
-		draw_texture_rect(_nebula_texture, Rect2(-slack - drift, covered), false)
+		draw_texture_rect(_nebula_texture, Rect2(-slack - drift, covered), false, _sector["sky_tint"])
+	var star_tint: Color = _sector["star_tint"]
 	var space := viewport + Vector2(48.0, 48.0)
 	for index in _distant_stars.size():
 		var origin := _star_position(_distant_stars[index], space, 0.08)
-		var tint := CYAN.lerp(WHITE_HOT, float(index % 8) / 8.0)
+		var tint := star_tint.lerp(WHITE_HOT, float(index % 8) / 8.0)
 		draw_rect(Rect2(origin, Vector2.ONE * (1.0 + (index % 7) * 0.13)), Color(tint, 0.16 + (index % 4) * 0.09))
 	for index in _near_stars.size():
 		var origin := _star_position(_near_stars[index], space, 0.24)
 		var intensity := 0.44 + 0.18 * sin(index * 9.12 + _mission_time * 1.25)
 		draw_circle(origin, 1.45, Color(WHITE_HOT, intensity), true, -1.0, true)
 		if index % 7 == 0:
-			draw_line(origin - Vector2(4.5, 0.0), origin + Vector2(4.5, 0.0), Color(CYAN, 0.21), 0.8, true)
-			draw_line(origin - Vector2(0.0, 4.5), origin + Vector2(0.0, 4.5), Color(CYAN, 0.21), 0.8, true)
+			draw_line(origin - Vector2(4.5, 0.0), origin + Vector2(4.5, 0.0), Color(star_tint, 0.21), 0.8, true)
+			draw_line(origin - Vector2(0.0, 4.5), origin + Vector2(0.0, 4.5), Color(star_tint, 0.21), 0.8, true)
 
 
 func _star_position(seed_position: Vector2, span: Vector2, parallax: float) -> Vector2:
@@ -877,12 +924,14 @@ func _draw_player(origin: Vector2) -> void:
 		return
 	var body_size := _ship_size(_player_texture, 93.0)
 	var boost := _player_velocity.length() / CRUISE_SPEED
-	var color := CYAN if _hit_cooldown < 0.54 else WARM
+	var accent: Color = _ship["accent"]
+	var color := accent if _hit_cooldown < 0.54 else WARM
 	draw_set_transform(origin, _player_heading + PI * 0.5)
-	var nozzle := body_size * Vector2(-0.073, 0.407)
+	var exhaust: Vector2 = _ship["exhaust"]
+	var nozzle := body_size * Vector2(-exhaust.x, exhaust.y)
 	var length := 26.0 + 15.0 * boost
-	_fx.engine(self, nozzle, 5.1, length, Color("#5099ff"), _mission_time)
-	_fx.engine(self, Vector2(-nozzle.x, nozzle.y), 5.1, length, CYAN, _mission_time)
+	_fx.engine(self, nozzle, 5.1, length, Color("#5099ff") if _ship_id == "peregrine" else accent.darkened(0.17), _mission_time)
+	_fx.engine(self, Vector2(-nozzle.x, nozzle.y), 5.1, length, accent, _mission_time)
 	var tint := Color.WHITE
 	if _hit_cooldown > 0.0:
 		tint = Color.WHITE.lerp(Color("#ff9580"), _hit_cooldown * 0.73)

@@ -80,7 +80,7 @@ func _fire_pulse(arena: Node2D, target: Vector2) -> void:
 	var right := Vector2(-forward.y, forward.x)
 	var spec: Resource = arena.PULSE
 	var rank: int = arena._loadout.rank("pulse_damage")
-	var damage := float(spec.damage) + 5.0 * rank
+	var damage := (float(spec.damage) + 5.0 * rank) * float(arena._stats["weapon_damage_multiplier"])
 	var shot_count := 2 + (rank + 1) / 2
 	for index in shot_count:
 		var spread := lerpf(-19.0, 19.0, float(index) / (shot_count - 1))
@@ -94,7 +94,7 @@ func _fire_pulse(arena: Node2D, target: Vector2) -> void:
 			var ray := forward.rotated(angle)
 			arena._launch_shot(arena.ShotKind.PULSE, origin + ray * 24.0, ray * 820.0, damage * 0.74, 0.43)
 		arena._fx.ring(origin, CYAN, 39.0, 0.26)
-	_pulse_timer = float(spec.interval_seconds)
+	_pulse_timer = float(spec.interval_seconds) * float(arena._stats["pulse_interval_multiplier"])
 	arena._firing_flash = 0.078
 	arena.sound_requested.emit("shot")
 
@@ -102,7 +102,7 @@ func _fire_pulse(arena: Node2D, target: Vector2) -> void:
 func _fire_missile(arena: Node2D, target: RefCounted, rank: int) -> void:
 	var origin: Vector2 = arena._player_position
 	var forward := Vector2.from_angle(float(arena._player_heading))
-	var damage := 29.0 + 12.0 * (rank - 1)
+	var damage := (29.0 + 12.0 * (rank - 1)) * float(arena._stats["weapon_damage_multiplier"])
 	arena._launch_shot(arena.ShotKind.MISSILE, origin - forward * 18.0, forward * 468.0, damage, 1.8, target)
 	_missile_timer = 2.65 - 0.29 * rank
 	arena.sound_requested.emit("missile")
@@ -146,7 +146,7 @@ func _step_laser(arena: Node2D, delta: float, rank: int) -> void:
 	if _laser_tick > 0.0:
 		return
 	_laser_tick += LASER_TICK_INTERVAL
-	var damage := 8.0 + 3.0 * (rank - 1)
+	var damage := (8.0 + 3.0 * (rank - 1)) * float(arena._stats["weapon_damage_multiplier"])
 	for index in range(arena._enemies.size() - 1, -1, -1):
 		var enemy: RefCounted = arena._enemies[index]
 		var point := Geometry2D.get_closest_point_to_segment(enemy.position, _laser_start, _laser_finish)
@@ -173,6 +173,7 @@ func _step_orbitals(arena: Node2D, delta: float, rank: int) -> void:
 	_orbital_timer = 0.2
 	var origin: Vector2 = arena._player_position
 	var hit := false
+	var damage := (12.0 + 4.0 * (rank - 1)) * float(arena._stats["weapon_damage_multiplier"])
 	for index in _orbital_count(rank):
 		var charge := _orbital_position(origin, index, rank)
 		for enemy_index in range(arena._enemies.size() - 1, -1, -1):
@@ -181,7 +182,7 @@ func _step_orbitals(arena: Node2D, delta: float, rank: int) -> void:
 			var enemy_position: Vector2 = enemy.position
 			if charge.distance_squared_to(enemy_position) > reach * reach:
 				continue
-			arena._damage_enemy(enemy_index, 12.0 + 4.0 * (rank - 1), charge.direction_to(enemy_position))
+			arena._damage_enemy(enemy_index, damage, charge.direction_to(enemy_position))
 			arena._fx.burst(charge, PLASMA, 5, 100.0)
 			hit = true
 	if hit:
@@ -206,7 +207,7 @@ func _fire_tesla(arena: Node2D, first: RefCounted, rank: int) -> void:
 	var origin: Vector2 = arena._player_position
 	var fork_origin: Vector2 = first.position
 	var seen: Array[RefCounted] = []
-	var damage := 24.0 + 8.0 * (rank - 1)
+	var damage := (24.0 + 8.0 * (rank - 1)) * float(arena._stats["weapon_damage_multiplier"])
 	for index in 3 + (rank - 1) / 2:
 		if target == null:
 			break
@@ -262,6 +263,8 @@ func _step_drones(arena: Node2D, delta: float, rank: int) -> void:
 	var hit := false
 	var origin: Vector2 = arena._player_position
 	var excluded: Array[RefCounted] = []
+	var drone_scale := float(arena._stats["weapon_damage_multiplier"]) * float(arena._stats["drone_damage_multiplier"])
+	var damage := (9.0 + 4.0 * (rank - 1)) * drone_scale
 	for index in _drone_count(rank):
 		var source := _drone_position(origin, index, rank)
 		var target := _nearest_from(arena, source, 205.0 + rank * 8.0, excluded)
@@ -269,7 +272,7 @@ func _step_drones(arena: Node2D, delta: float, rank: int) -> void:
 			continue
 		var finish: Vector2 = target.position
 		excluded.append(target)
-		arena._damage_enemy(arena._enemies.find(target), 9.0 + 4.0 * (rank - 1), source.direction_to(finish))
+		arena._damage_enemy(arena._enemies.find(target), damage, source.direction_to(finish))
 		_add_trace(PackedVector2Array([source, finish]), DRONE, 1.8, 0.14)
 		hit = true
 	if hit:

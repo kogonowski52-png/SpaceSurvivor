@@ -439,10 +439,11 @@ func _earned_salvage() -> int:
 
 
 func _profile_salvage() -> int:
-	var profile := ConfigFile.new()
-	if profile.load("user://flight_profile.cfg") != OK:
-		return 0
-	return int(profile.get_value("pilot", "salvage", 0))
+	var profile := preload("res://data/pilot_progression.gd").new()
+	profile.save_path = game.progression.save_path
+	profile.legacy_path = game.progression.legacy_path
+	profile.load_profile()
+	return int(profile.snapshot().profile.materials)
 
 
 func _advance_to(target: float) -> void:
