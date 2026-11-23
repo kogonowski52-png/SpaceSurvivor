@@ -36,6 +36,7 @@ var _flight_id := ""
 var _result: Dictionary
 var _ad_message := ""
 var _play_test := false
+var _privacy_policy_url := ""
 
 
 func _ready() -> void:
@@ -43,6 +44,8 @@ func _ready() -> void:
 		# Android builds before 0.6 carried simulated purchases. Keep those saves separate.
 		var bridge := Engine.get_singleton("GalaxyCommerce") if Engine.has_singleton("GalaxyCommerce") else null
 		var live: bool = bridge != null and bridge.playMode() == "live"
+		if bridge != null:
+			_privacy_policy_url = bridge.privacyPolicyUrl()
 		_play_test = not live
 		progression.save_path = "user://play_progress" if live else "user://play_debug_progress"
 		progression.legacy_path = ""
@@ -111,6 +114,7 @@ func _notification(what: int) -> void:
 func _start_mission() -> void:
 	if ads.busy():
 		return
+	var previous_arena := arena
 	_discard_arena()
 	_flight_id = Crypto.new().generate_random_bytes(16).hex_encode()
 	_result = {}
@@ -119,9 +123,9 @@ func _start_mission() -> void:
 	flight_audio.set_scene(phase)
 	ui.show_hud()
 	arena = Arena.new()
-	arena.revive_offer_enabled = true
+	arena.revive_offer_enabled = progression.save_block_reason().is_empty()
 	active_sortie = progression.sortie()
-	arena.configure(active_sortie)
+	arena.configure(active_sortie, previous_arena)
 	arena.name = "Arena"
 	arena.telemetry.connect(ui.update_hud)
 	arena.upgrade_requested.connect(_show_upgrades)
@@ -441,6 +445,7 @@ func _open_settings() -> void:
 	_settings.name = "AudioSettings"
 	_settings.initial_mix = mix_preferences.levels
 	_settings.privacy_required = ads.privacy_required
+	_settings.privacy_policy_url = _privacy_policy_url
 	_settings.mix_previewed.connect(_preview_audio)
 	_settings.privacy_requested.connect(ads.show_privacy)
 	_settings.effects_sample_requested.connect(flight_audio.play_event.bind("equip"))

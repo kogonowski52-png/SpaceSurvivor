@@ -110,6 +110,7 @@ var _pending_cards: Array[Dictionary] = []
 var _textures: Array[Texture2D] = []
 var _enemy_frames: Array[Rect2] = []
 var _player_texture: Texture2D
+var _player_frame := Rect2()
 var _nebula_texture: Texture2D
 var _distant_star_tile: Texture2D
 var _near_stars := PackedVector2Array()
@@ -147,7 +148,7 @@ var _livery := Color.WHITE
 var _livery_accent := Color.TRANSPARENT
 
 
-func configure(sortie: Dictionary) -> void:
+func configure(sortie: Dictionary, previous: StrikeArena = null) -> void:
 	if is_inside_tree():
 		return
 	var wanted_ship := String(sortie.get("ship_id", "peregrine"))
@@ -160,6 +161,9 @@ func configure(sortie: Dictionary) -> void:
 		_livery = livery.tint
 		_livery_accent = livery.accent
 	_sector = Catalog.SECTORS[_sector_id]
+	if is_instance_valid(previous) and previous._sector_id == _sector_id:
+		_distant_star_tile = previous._distant_star_tile
+		_near_stars = previous._near_stars
 	_stats = Catalog.build_stats(_ship_id, {}, {})
 	var derived: Dictionary = sortie.get("stats", {})
 	for metric: String in _stats:
@@ -179,6 +183,9 @@ func _ready() -> void:
 	_player_texture = HULL.sprite if _ship_id == "peregrine" else _texture(_ship["sprite"])
 	if _player_texture == null:
 		_player_texture = HULL.sprite
+	if _player_texture != null:
+		var body_size := _ship_size(_player_texture, 93.0)
+		_player_frame = Rect2(-body_size * 0.5, body_size)
 	_max_hp = float(_stats["max_hp"])
 	_hp = _max_hp
 	for index in int(_stats["drone_rank"]):
@@ -189,7 +196,8 @@ func _ready() -> void:
 		_textures.append(texture)
 		var size := _ship_size(texture, SHIP_BOUNDS[kind]) if texture != null else Vector2.ZERO
 		_enemy_frames.append(Rect2(-size * 0.5, size))
-	_seed_sky()
+	if _distant_star_tile == null:
+		_seed_sky()
 	_spawn_enemy(EnemyKind.SCOUT, Vector2(-230.0, -250.0))
 	var starting_escort := EnemyKind.SCOUT
 	match _sector_id:
@@ -470,6 +478,7 @@ func _spawn_enemy(kind: int, position: Vector2) -> void:
 
 
 func _step_enemies(delta: float) -> void:
+	var turn_weight := 1.0 - exp(-delta * 7.0)
 	for index in _enemies.size():
 		var enemy := _enemies[index]
 		var toward := _player_position - enemy.position
@@ -497,7 +506,7 @@ func _step_enemies(delta: float) -> void:
 		var aim_heading := toward.angle()
 		if (enemy.kind >= EnemyKind.MINIBOSS and (enemy.charge > 0.0 or enemy.afterglow > 0.0)) or (enemy.kind == EnemyKind.RAZOR and enemy.action_timer <= 0.0):
 			aim_heading = enemy.aim.angle()
-		enemy.heading = lerp_angle(enemy.heading, aim_heading, 1.0 - exp(-delta * 7.0))
+		enemy.heading = lerp_angle(enemy.heading, aim_heading, turn_weight)
 		enemy.hit_flash = maxf(0.0, enemy.hit_flash - delta)
 		if distance < PLAYER_RADIUS + enemy.radius:
 			_hurt_player(enemy.contact_damage)
@@ -655,14 +664,17 @@ func _target_along_segment(start: Vector2, finish: Vector2, thickness := 0.0) ->
 	var length_squared := travel.length_squared()
 	if length_squared < 0.00001:
 		return nearest
+	var segment_min := start.min(finish)
+	var segment_max := start.max(finish)
 	for index in _enemies.size():
 		var enemy := _enemies[index]
 		var radius := enemy.radius + thickness
-		var center := enemy.position - start
-		var bound_x := radius + absf(travel.x)
-		var bound_y := radius + absf(travel.y)
-		if absf(center.x) > bound_x or absf(center.y) > bound_y:
+		var position := enemy.position
+		if position.x < segment_min.x - radius or position.x > segment_max.x + radius:
 			continue
+		if position.y < segment_min.y - radius or position.y > segment_max.y + radius:
+			continue
+		var center := position - start
 		var center_fraction := center.dot(travel) / length_squared
 		var perpendicular_squared := center.length_squared() - center_fraction * center_fraction * length_squared
 		var chord_squared := radius * radius - perpendicular_squared
@@ -909,7 +921,6 @@ func _draw() -> void:
 
 
 func _draw_sky(viewport: Vector2) -> void:
-	draw_rect(Rect2(Vector2.ZERO, viewport), Color("#080d1b"))
 	if _nebula_texture != null:
 		var texture_size := _nebula_texture.get_size()
 		var fit := maxf(viewport.x / texture_size.x, viewport.y / texture_size.y) * 1.074
@@ -917,6 +928,8 @@ func _draw_sky(viewport: Vector2) -> void:
 		var slack := (covered - viewport) * 0.5
 		var drift := _camera / ARENA.size * slack * 1.45
 		draw_texture_rect(_nebula_texture, Rect2(-slack - drift, covered), false, _sector["sky_tint"])
+	else:
+		draw_rect(Rect2(Vector2.ZERO, viewport), Color("#080d1b"))
 	var star_tint: Color = _sector["star_tint"]
 	var space := viewport + Vector2(48.0, 48.0)
 	var sample := Rect2(_camera * 0.08, viewport)
@@ -1026,13 +1039,12 @@ func _ship_size(texture: Texture2D, max_dimension: float) -> Vector2:
 func _draw_player(origin: Vector2) -> void:
 	if _player_texture == null:
 		return
-	var body_size := _ship_size(_player_texture, 93.0)
 	var boost := _player_velocity.length() / CRUISE_SPEED
 	var accent: Color = _livery_accent if _livery_accent.a > 0 else _ship["accent"]
 	var color := accent.lerp(WARM, _hull_flash / HULL_HIT_LIFETIME)
 	draw_set_transform(origin, _player_heading + PI * 0.5)
 	var exhaust: Vector2 = _ship["exhaust"]
-	var nozzle := body_size * Vector2(-exhaust.x, exhaust.y)
+	var nozzle := _player_frame.size * Vector2(-exhaust.x, exhaust.y)
 	var length := 26.0 + 15.0 * boost
 	_fx.engine(self, nozzle, 5.1, length, Color("#5099ff") if _ship_id == "peregrine" else accent.darkened(0.17), _mission_time)
 	_fx.engine(self, Vector2(-nozzle.x, nozzle.y), 5.1, length, accent, _mission_time)
@@ -1040,7 +1052,7 @@ func _draw_player(origin: Vector2) -> void:
 	if _hull_flash > 0.0:
 		var impact := _hull_flash / HULL_HIT_LIFETIME
 		tint = _livery.lerp(Color("#ffb197"), impact * 0.45)
-	draw_texture_rect(_player_texture, Rect2(-body_size * 0.5, body_size), false, tint)
+	draw_texture_rect(_player_texture, _player_frame, false, tint)
 	if _firing_flash > 0.0:
 		for sign_x: int in [-1, 1]:
 			var muzzle := Vector2(sign_x * 20.0, -17.0)

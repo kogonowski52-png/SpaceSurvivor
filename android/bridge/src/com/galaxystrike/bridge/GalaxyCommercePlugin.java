@@ -84,6 +84,12 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
     }
 
     @UsedByGodot
+    public String privacyPolicyUrl() {
+        Activity activity = getActivity();
+        return activity == null ? "" : metadata(activity, "com.galaxystrike.privacy_policy");
+    }
+
+    @UsedByGodot
     public String playMode() {
         Activity activity = getActivity();
         return activity != null && !debuggable(activity)

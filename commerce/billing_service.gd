@@ -53,6 +53,10 @@ func pending(id: String) -> bool:
 func buy(id: String) -> void:
 	if _busy:
 		return
+	var blocked := _profile.save_block_reason()
+	if not blocked.is_empty():
+		status_changed.emit("save", blocked)
+		return
 	var offer: Dictionary = Offers.OFFERS.get(id, {})
 	if offer.get("kind") != "play":
 		status_changed.emit("error", "Ten produkt nie należy do katalogu Google Play.")
@@ -121,7 +125,9 @@ func _received(id: String, state: String, receipts: Array) -> void:
 		return
 	var expected := _expected_sku
 	_request = ""
-	if state not in ["success", "restored"]:
+	var platform_failed := state not in ["success", "restored"]
+	var query_deliveries := expected.is_empty() and not adapter.is_test() and adapter.online_ready()
+	if platform_failed and not query_deliveries:
 		_finish(state, MESSAGES.get(state, MESSAGES.error))
 		return
 	if state == "success" and receipts.is_empty():
@@ -133,7 +139,7 @@ func _received(id: String, state: String, receipts: Array) -> void:
 	var rejected := 0
 	var detail := ""
 	var outcomes: Array[Dictionary] = []
-	for value: Variant in receipts:
+	for value: Variant in ([] if platform_failed else receipts):
 		if not value is Dictionary or (not expected.is_empty() and value.get("sku") != expected):
 			rejected += 1
 			continue
@@ -141,7 +147,7 @@ func _received(id: String, state: String, receipts: Array) -> void:
 			awaiting += 1
 			continue
 		outcomes.append(await _fulfill(value))
-	if state == "restored" and not adapter.is_test() and adapter.online_ready():
+	if query_deliveries:
 		var backlog := await adapter.outstanding()
 		if not backlog.get("ok", false) or not backlog.get("orders") is Array:
 			rejected += 1
@@ -160,7 +166,12 @@ func _received(id: String, state: String, receipts: Array) -> void:
 			applied += 1
 			if detail.is_empty():
 				detail = outcome.message
-	if state == "restored":
+	if platform_failed:
+		if applied > 0 and rejected == 0:
+			_finish("restored", "Odzyskano dostawy z serwera gry. Google Play jest chwilowo niedostępny.")
+		else:
+			_finish(state, detail if not detail.is_empty() else MESSAGES.get(state, MESSAGES.error))
+	elif state == "restored":
 		if rejected > 0 and not detail.is_empty():
 			_finish("error", detail)
 		else:

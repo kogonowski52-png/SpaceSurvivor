@@ -12,6 +12,11 @@ func _run() -> void:
 		quit(1)
 		return
 	_check(game.phase == "settings", "title settings button opens controls")
+	_check(_button("PrivacyPolicyButton") == null and _button("PrivacyOptionsButton") == null,
+		"desktop simulator exposes no unconfigured policy link or UMP button")
+	game.ads.adapter.privacy_changed.emit(true, "")
+	_check(_button("PrivacyOptionsButton") != null, "settings exposes the UMP control when the provider requires it")
+	game.ads.adapter.privacy_changed.emit(false, "")
 	var master := _slider("MasterVolume")
 	var music := _slider("MusicVolume")
 	var effects := _slider("EffectsVolume")
@@ -28,7 +33,9 @@ func _run() -> void:
 	await _frames(3)
 	_open_title()
 	await _frames(10)
+	game._privacy_policy_url = "https://privacy.example.invalid/galaxy-strike"
 	await _click("SettingsButton")
+	_check(_button("PrivacyPolicyButton") != null, "a configured policy URL adds a link in settings")
 	master = _slider("MasterVolume")
 	_check(master != null and master.value == 52.0, "fresh scene loads the saved audio levels")
 	if master != null:

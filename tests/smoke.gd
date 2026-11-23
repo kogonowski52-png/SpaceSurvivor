@@ -499,7 +499,7 @@ func _click(button_name: String) -> bool:
 		event.pressed = down
 		root.push_input(event, true)
 		await process_frame
-	await _frames(18)
+	await _frames(6 if OS.get_cmdline_user_args().has("--quick-capture") else 18)
 	return true
 
 

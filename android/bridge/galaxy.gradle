@@ -19,6 +19,13 @@ if (!(playMode in ['test', 'live'])) {
 if (purchaseServer && !(purchaseServer ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[A-Za-z0-9_\/-]+)?\/?/)) {
     throw new GradleException('GALAXY_PURCHASE_SERVER must be an HTTPS origin or base path')
 }
+def privacyPolicy = System.getenv('GALAXY_PRIVACY_POLICY_URL') ?: ''
+if (privacyPolicy && !(privacyPolicy ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[A-Za-z0-9._~\/-]+)?/)) {
+    throw new GradleException('GALAXY_PRIVACY_POLICY_URL must be an HTTPS page URL')
+}
+if (!privacyPolicy && (playMode == 'live' || admobApp != sampleApp)) {
+    throw new GradleException('Configure the public privacy policy URL for a live integration')
+}
 
 android {
     sourceSets.main.java.srcDir(rootProject.file('../bridge/src'))
@@ -30,6 +37,7 @@ android {
             galaxyRewardedRevive: unitIds.revive,
             galaxyPurchaseServer: purchaseServer,
             galaxyPlayMode: playMode,
+            galaxyPrivacyPolicy: privacyPolicy,
         ])
     }
 }

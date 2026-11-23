@@ -116,7 +116,7 @@ func _audit_settings() -> void:
 
 
 func _audit_capture(label: String) -> void:
-	await _frames(12)
+	await _frames(5 if OS.get_cmdline_user_args().has("--quick-capture") else 12)
 	var viewport := root.get_visible_rect()
 	for node in game.find_children("*", "BaseButton", true, false):
 		var button := node as BaseButton

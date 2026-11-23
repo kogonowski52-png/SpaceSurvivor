@@ -13,6 +13,7 @@ const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
 
 var initial_mix := Vector3(0.90, 0.65, 0.80)
 var privacy_required := false
+var privacy_policy_url := ""
 var _values := Vector3.ZERO
 var _feedback: Label
 var _privacy_button: Button
@@ -58,6 +59,8 @@ func _ready() -> void:
 	_channel(column, "EffectsVolume", "Efekty dźwiękowe", 2)
 	_privacy_button = _button(column, "PrivacyOptionsButton", "OPCJE PRYWATNOŚCI REKLAM", false, privacy_requested.emit)
 	_privacy_button.visible = privacy_required
+	if privacy_policy_url.begins_with("https://"):
+		_button(column, "PrivacyPolicyButton", "POLITYKA PRYWATNOŚCI", false, _open_privacy_policy)
 
 	_feedback = _label("", 17, Palette.DANGER, Body)
 	_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -84,6 +87,12 @@ func update_privacy(required: bool, message: String) -> void:
 	_privacy_button.visible = required
 	_feedback.text = message
 	_feedback.visible = not message.is_empty()
+
+
+func _open_privacy_policy() -> void:
+	if OS.shell_open(privacy_policy_url) != OK:
+		_feedback.text = "Nie udało się otworzyć polityki prywatności."
+		_feedback.show()
 
 
 func _channel(parent: VBoxContainer, id: String, title: String, axis: int) -> HSlider:

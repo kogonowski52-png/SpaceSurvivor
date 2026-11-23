@@ -29,7 +29,7 @@ class Collapse:
 	var tint: Color
 	var life: float
 
-var _plume: Texture2D
+static var _plume: Texture2D
 var _collapses: Array[Collapse] = []
 
 var _rng := RandomNumberGenerator.new()
@@ -41,6 +41,8 @@ var _ring_pool: Array[Ring] = []
 
 func prepare() -> void:
 	# The short thruster plume is baked once so regular ships only need one draw each.
+	if _plume != null:
+		return
 	const WIDTH := 24
 	const HEIGHT := 62
 	var image := Image.create_empty(WIDTH, HEIGHT, false, Image.FORMAT_RGBA8)

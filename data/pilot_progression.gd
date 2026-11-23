@@ -67,7 +67,8 @@ func load_profile() -> void:
 		elif records.size() < slots_present:
 			_message = "Odzyskano ostatnią poprawną kopię profilu."
 	elif slots_present > 0:
-		_message = "Brak poprawnej kopii profilu. Wczytano ustawienia początkowe."
+		_read_only = true
+		_message = "Brak poprawnej kopii profilu. Zapis jest zablokowany, a oryginalne pliki zostały zachowane."
 	elif not legacy_path.is_empty() and FileAccess.file_exists(legacy_path):
 		var legacy := ConfigFile.new()
 		if legacy.load(legacy_path) == OK:
@@ -111,6 +112,10 @@ func snapshot() -> Dictionary:
 	}
 
 
+func save_block_reason() -> String:
+	return _message if _read_only else ""
+
+
 func sortie() -> Dictionary:
 	var ship_id: String = _data.ship_id
 	var sector_id: String = _data.sector_id
@@ -127,7 +132,7 @@ func apply(action: String, value: String = "") -> Dictionary:
 	_highlight_value = ""
 	_loot = ""
 	if _read_only:
-		return _fail("Zaktualizuj grę przed zmianą zapisu.")
+		return _fail(_message)
 	var candidate := _data.duplicate(true)
 	var today := _today(candidate)
 	var ship: String = candidate.ship_id
@@ -222,7 +227,6 @@ func apply(action: String, value: String = "") -> Dictionary:
 
 func credit_mission(result: Dictionary, sector_id: String, flight_id: String = "") -> Dictionary:
 	if _read_only:
-		_message = "Zaktualizuj grę, aby zapisać wynik."
 		return _unsaved_result()
 	if flight_id.length() > 64 or (not flight_id.is_empty() and _data.commerce.receipts.has("flight:" + flight_id)):
 		return _unsaved_result()
@@ -300,7 +304,7 @@ func claim_rewarded_ad(placement: String, scope: String) -> Dictionary:
 
 func _wallet_transaction(operation: Callable) -> Dictionary:
 	if _read_only:
-		return Wallet.failure("save", "Zaktualizuj grę przed zmianą zapisu.")
+		return Wallet.failure("save", _message)
 	var draft := _data.duplicate(true)
 	var outcome: Dictionary = operation.call(draft)
 	if outcome.get("changed", false):
@@ -444,13 +448,18 @@ func _read_slot(path: String) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null or file.get_length() > 1048576:
 		return {}
-	var envelope: Variant = JSON.parse_string(file.get_as_text())
+	var parser := JSON.new()
+	if parser.parse(file.get_as_text()) != OK:
+		return {}
+	var envelope: Variant = parser.data
 	if not envelope is Dictionary or not envelope.get("payload") is String:
 		return {}
 	var payload: String = envelope.payload
 	if envelope.get("sha256") != payload.sha256_text():
 		return {}
-	var record: Variant = JSON.parse_string(payload)
+	if parser.parse(payload) != OK:
+		return {}
+	var record: Variant = parser.data
 	if not record is Dictionary or not record.get("data") is Dictionary:
 		return {}
 	if _count(record.get("version", 0)) < 1 or _count(record.get("revision", 0)) < 1:

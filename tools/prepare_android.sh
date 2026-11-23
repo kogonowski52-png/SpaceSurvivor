@@ -56,6 +56,8 @@ entries = """
             android:value="${galaxyPurchaseServer}" />
         <meta-data android:name="com.galaxystrike.play_mode"
             android:value="${galaxyPlayMode}" />
+        <meta-data android:name="com.galaxystrike.privacy_policy"
+            android:value="${galaxyPrivacyPolicy}" />
         <!-- End Galaxy Strike bridge -->
 """
 if start in manifest:

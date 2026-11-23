@@ -9,6 +9,7 @@ class VerifiedFixture extends Adapter:
 	var batch: Array = []
 	var deliveries: Array = []
 	var confirmations: Array[String] = []
+	var restore_state := "restored"
 
 	func online_ready() -> bool:
 		return true
@@ -17,7 +18,7 @@ class VerifiedFixture extends Adapter:
 		answered.emit(id, "success", batch)
 
 	func restore(id: String, _complete: bool) -> void:
-		answered.emit(id, "restored", batch)
+		answered.emit(id, restore_state, batch)
 
 	func authorize(_receipt: Dictionary) -> Dictionary:
 		return proof
@@ -69,8 +70,10 @@ func _run() -> void:
 	_profile.save_path = unmodified
 	_provider.batch = []
 	_provider.deliveries = [_provider.proof]
+	_provider.restore_state = "network_error"
 	_billing.restore()
-	_check(_state == "restored" and _crystals() == 100 and delivery in _provider.confirmations, "restore recovers a server delivery without a Play callback")
+	_check(_state == "restored" and _crystals() == 100 and delivery in _provider.confirmations, "restore recovers a server delivery while Play is offline")
+	_provider.restore_state = "restored"
 	_profile.load_profile()
 	_billing.restore()
 	_check(_crystals() == 100, "replayed server delivery stays idempotent after restart")

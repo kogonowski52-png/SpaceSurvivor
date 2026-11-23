@@ -66,3 +66,7 @@ Pierwsze polecenie importuje projekt, sprawdza uzbrojenie, bossów, hangar, audi
 - `data/missions/`, `data/hangar/` i `data/weapons/` zawierają zasoby misji, wyposażenia i uzbrojenia. `data/store/` definiuje ofertę i operacje portfela, a `commerce/` obsługuje adaptery zakupów i reklam.
 - [Kierunek artystyczny i pochodzenie zasobów](ART_DIRECTION.md)
 - [Licencja Godot](licenses/Godot-LICENSE.txt) · [Informacje licencyjne komponentów Godot](licenses/Godot-COPYRIGHT.txt) · [Licencje krojów pisma](assets/fonts/README.md)
+
+## Audyt przed wydaniem
+
+Kandydat 0.6.1 jest przeznaczony do testów. Wyniki, ograniczenia i wymagania publikacji są zapisane w katalogu wydania. [Raport audytu](release/AUDIT_FINAL_PL.md) · [Google Play Console](release/PUBLICATION_PL.md)

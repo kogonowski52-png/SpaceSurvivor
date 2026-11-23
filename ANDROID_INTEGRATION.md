@@ -1,6 +1,6 @@
-# Galaxy Strike · Android 0.6
+# Galaxy Strike · Android 0.6.1
 
-Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wersja aplikacji to **0.6.0**, kod wersji to **6**, a oba presety Androida ustawiają **target SDK 36** i **min SDK 24**. ABI obejmują arm64-v8a oraz x86_64. Zachowaj ten identyfikator w Google Play Console i AdMob.
+Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wersja aplikacji to **0.6.1**, kod wersji to **7**, a oba presety Androida ustawiają **target SDK 36** i **min SDK 24**. ABI obejmują arm64-v8a oraz x86_64. Zachowaj ten identyfikator w Google Play Console i AdMob.
 
 ## Zweryfikowane wersje
 
@@ -37,6 +37,7 @@ APK debug i podpis aplikacji z Google Play wykorzystują zwykle inne klucze. Je�
 - Domyślna kompilacja używa przykładowego ID aplikacji Google `ca-app-pub-3940256099942544~3347511713` oraz oficjalnej jednostki Rewarded `ca-app-pub-3940256099942544/5224354917`. Etykieta **Test AdMob** wskazuje prawdziwe żądanie reklamy testowej. Kompilacja debug zawsze używa testowej jednostki Rewarded.
 - We własnym AdMob utwórz aplikację Android o podanej nazwie pakietu i trzy jednostki Rewarded odpowiadające bonusowi dziennemu, podwojeniu wyniku i ożywieniu. Do kompilacji przypisz zmienne `GALAXY_ADMOB_APP_ID`, `GALAXY_ADMOB_REWARDED_BONUS`, `GALAXY_ADMOB_REWARDED_DOUBLE` i `GALAXY_ADMOB_REWARDED_REVIVE`. Podanie własnego App ID wymaga poprawnego ID każdej jednostki.
 - W **Privacy & messaging** opublikuj wymagane regionalnie komunikaty i powiąż je z aplikacją. Przy uruchomieniu gry UMP aktualizuje status i pokazuje wymagany formularz. SDK reklam pobiera reklamę dopiero po potwierdzeniu `canRequestAds()`. Przycisk **Opcje prywatności reklam** w ustawieniach otwiera formularz, jeśli status UMP to `REQUIRED`. AdMob służy też do dodania telefonów testowych do konta i sprawdzenia statusów zgód właściwych dla aplikacji.
+- Ustaw `GALAXY_PRIVACY_POLICY_URL` na publiczny adres HTTPS polityki. Gra pokazuje link w ustawieniach. Gradle wymaga tego adresu przy produkcyjnym Billing lub konfigurowaniu rzeczywistego App ID AdMob. [Projekty polityki i Data Safety](release/policy)
 - Sprawdź wszystkie trzy dobrowolne wejścia. Odbierz nagrodę po ukończeniu reklamy, zamknij kolejną reklamę przed nagrodą i sprawdź tryb bez sieci. Kod przyznaje nagrodę na podstawie sygnału SDK `onUserEarnedReward`, po zamknięciu widoku. Zamknięcie i błąd bez sygnału nagrody nie przyznają wypłaty. W Play Console uzupełnij deklarację reklam i Kartę bezpieczeństwa danych zgodnie z konfiguracją SDK. [Rewarded](https://developers.google.com/admob/android/rewarded) · [Reklamy testowe](https://developers.google.com/admob/android/test-ads) · [UMP](https://developers.google.com/admob/android/privacy)
 
 ## Produkty i testy Google Play
@@ -87,7 +88,7 @@ godot --headless --export-release "Android Play AAB" build/android/GalaxyStrike-
 unset GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD
 ```
 
-Zweryfikuj podpis poleceniem `jarsigner -verify` i porównaj odcisk certyfikatu z kluczem przesyłania w Play Console. Zwiększ `version/code` w obu presetach, jeśli Play Console widziało już numer **6**.
+Zweryfikuj podpis poleceniami `jarsigner -verify` i `bundletool validate`. Porównaj odcisk certyfikatu z kluczem przesyłania w Play Console. Zwiększ `version/code` w obu presetach, jeśli Play Console widziało już numer **7**. [Instrukcja publikacji](release/PUBLICATION_PL.md)
 
 ## Testy projektu
 

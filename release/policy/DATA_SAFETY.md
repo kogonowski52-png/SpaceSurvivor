@@ -1,0 +1,19 @@
+# Data Safety i deklaracja reklam
+
+Projekt do zatwierdzenia na koncie właściciela po wdrożeniu rzeczywistych ustawień. Obejmuje natywne biblioteki Google Mobile Ads 25.5.0, UMP 4.0.0 i Billing 9.1.0. Domyślny APK ma demonstracyjne jednostki Rewarded, a łączenie konta kupującego wymaga osobnego serwera. Formularz w Play Console musi obejmować warianty udostępniane graczom, także warunkową telemetrię SDK.
+
+| Kategoria w konsoli | Przykłady i źródło | Cel i dobrowolność |
+| --- | --- | --- |
+| Przybliżona lokalizacja | Google Mobile Ads może wnioskować ją na podstawie adresu IP | Reklamy, pomiar i bezpieczeństwo. Zweryfikuj stan przy danej zgodzie i konfiguracji. |
+| Aktywność w aplikacji / interakcje | Google Mobile Ads i formularze SDK mogą rejestrować interakcje oraz zdarzenia reklamowe | Obsługa SDK, reklam i pomiar. Sprawdź, które żądania są wysyłane przed wyświetleniem reklamy. |
+| Informacje o aplikacji / diagnostyka | Dane dotyczące SDK, zgłoszenia błędów i wydajności wysyłane przez SDK | Stabilność, reklamy, bezpieczeństwo. Kod gry zapisuje logi lokalnie i nie dodaje własnej usługi zbierania awarii. |
+| Identyfikatory urządzenia lub inne identyfikatory | Identyfikator reklamowy może być przetwarzany przez SDK. Weryfikator dostaje losowy identyfikator instalacji | Reklamy i zabezpieczenie dostawy. Serwer używa identyfikatora przy połączeniu konta. |
+| Dane osobowe / identyfikatory użytkowników | Identyfikator konta zakupu i jego pseudonim, kod połączenia przekazywany przez HTTPS | Połączenie konta, weryfikacja oraz odzyskanie uprawnienia. Dotyczy użytkownika, który aktywuje konto zakupów. |
+| Informacje finansowe / historia zakupów | SKU, token Google Play i wynik rozliczenia w weryfikatorze, Google Play przetwarza płatność | Realizacja zakupu i ochrona przed wielokrotnym przyznaniem. Dotyczy zakupów i przywracania. |
+
+Zweryfikowany manifest APK zawiera `INTERNET`, `ACCESS_NETWORK_STATE`, `com.android.vending.BILLING`, `com.google.android.gms.permission.AD_ID` i `android.permission.ACCESS_ADSERVICES_AD_ID`. Sprawdź deklarację identyfikatora reklamowego na podstawie manifestu rozpowszechnianego AAB. Potwierdź reguły **zbierania**, **udostępniania** i wyjątki dla dostawców usług na wersji SDK faktycznie użytej w sklepie. Publikujący musi zatwierdzić odpowiedzi na temat szyfrowania w przesyle, obsługi żądań usunięcia i praktyk hostingu. [Ujawnianie danych dla SDK reklam](https://developers.google.com/admob/android/privacy/play-data-disclosure) · [Formularz Data Safety](https://support.google.com/googleplay/android-developer/answer/10787469)
+
+- **Czy aplikacja zawiera reklamy** ustaw **Tak** dla wydania z AdMob Rewarded. Wszystkie trzy miejsca wymagają działania gracza. Określ odbiorców i ocenę treści zgodnie z rzeczywistością. Formularze zgody i testy regionalne wymagają konfiguracji AdMob.
+- **Prywatność w aplikacji i karcie sklepu** używa tego samego publicznego adresu HTTPS. Aplikacja pobiera go z `GALAXY_PRIVACY_POLICY_URL`. Szablony PL i EN wymagają określenia operatora, kontaktu, retencji, procesorów i obsługi usuwania danych.
+- **Usunięcie danych** wymaga działającej procedury właściciela. Weryfikator referencyjny nie udostępnia interfejsu samodzielnego usuwania konta. Jeśli wdrożenie umożliwia tworzenie konta w aplikacji, przygotuj ścieżkę żądania usunięcia w aplikacji oraz pod publicznym adresem. Określ zatrzymanie koniecznych wpisów transakcyjnych. [Wymagania usuwania konta](https://support.google.com/googleplay/android-developer/answer/13327111)
+- **Płatne waluty** trafiają po potwierdzeniu do lokalnego zapisu. Obecny serwis nie odtwarza zużywalnego salda po utracie tego zapisu i nie obsługuje automatycznej korekty na podstawie zwrotów. Wydanie z płatnościami wymaga rozwiązania odzyskiwania salda, obsługi zwrotów oraz weryfikacji wersji produkcyjnej na telefonie.

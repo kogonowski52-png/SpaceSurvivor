@@ -252,6 +252,13 @@ func _test_ads() -> void:
 
 func _store_frames() -> void:
 	await _shop_frame("oferta")
+	await _click_scrolled("TestOptionsButton")
+	await _shop_frame("scenariusze")
+	await _click_scrolled("TestOptionsButton")
+	game.test_ads.scenario = "unavailable"
+	await _click_scrolled("BonusCreditsButton")
+	_check(game._store_state == "unavailable", "unavailable rewarded ad is visible to the tester")
+	await _shop_frame("reklama-niedostepna")
 	for tab in ["crystals", "skins", "gear", "season"]:
 		if await _click("StoreTab_" + tab):
 			await _shop_frame(tab)

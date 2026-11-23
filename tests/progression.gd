@@ -231,6 +231,23 @@ func _test_storage() -> void:
 	_check(not blocked.apply("upgrade", "hull").ok, "unwritable destination rejects the purchase")
 	_check(before == blocked.snapshot().profile, "failed save does not deduct funds or apply an upgrade")
 
+	var damaged := _new_profile("damaged")
+	var original_bytes := ["{\"payload\":", "{\"payload\":\"bad checksum\",\"sha256\":\"123\"}"]
+	for index in 2:
+		var file := FileAccess.open("%s.%d.json" % [damaged.save_path, index], FileAccess.WRITE)
+		if not _check(file != null, "opens corrupt-save fixture slot"):
+			return
+		file.store_string(original_bytes[index])
+		file.close()
+	damaged.load_profile()
+	_check(damaged.snapshot().read_only and not damaged.credit_mission(_completed_mission(), "peryhelium").ok,
+		"two corrupt slots open a read-only profile without crediting rewards")
+	_check(not damaged.apply("upgrade", "hull").ok and not damaged.shop_buy("skin_sol").ok,
+		"a damaged profile cannot spend credits or acquire items")
+	for index in 2:
+		_check(FileAccess.get_file_as_string("%s.%d.json" % [damaged.save_path, index]) == original_bytes[index],
+			"recovery preserves the corrupt original slot %d" % index)
+
 
 func _test_unlocks() -> void:
 	var pilot := _new_profile("unlocks")
