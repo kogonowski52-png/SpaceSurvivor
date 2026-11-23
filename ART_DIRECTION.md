@@ -84,3 +84,22 @@ W nowych wariantach referencyjnych Razora i Widma lepiej widać stalowe krawędz
 - Scout, Razor i Widmo otrzymały matowy granatowy podrys i cienką krawędź w kolorze klasy, wypalone do tekstury z istniejącego kadłuba. W walce efekty dekoracyjne słabną przy statku pilota, a ostrzeżenia bossów trafiają nad eskortę. Pociski i animowana wiązka korzystają z jednego wypalonego atlasu oświetlenia. [Generator obrysu](tools/bake_enemy_rims.gd) · [Generator atlasu](tools/bake_flight_lights.gd)
 - Hangar używa kadru istniejącej hali, większych miniatur i animowanego odbicia na teksturach czterech statków. Odbicie ogranicza się do sylwetki kadłuba. W wyposażeniu hierarchię rozdzielają gniazda bieżącego statku, wartości, opisy i magazyn.
 - Ilustracje zasobnika, kontenera i rdzenia Crystals oraz pięciu klas wyposażenia wygenerowano dla tej wersji. Tekstury WebP w `assets/art/crystals/` i `assets/art/modules/` zachowują przezroczystość. Wizualizacje wyposażenia pokazują typ modułu. Jego nazwę, rzadkość i efekt określa karta nagrody. Fiolet odróżnia Epic, a ciepły metal i większa ilustracja podkreślają Legendary.
+
+## Kampania Próg Helionu
+
+Pole lotu 9:16 używa trzech nowych teł przygotowanych dla tego projektu. Chłodny pierścień w Echu pasa prowadzi wzrok ku polu formacji. Pył i fioletowe światło Załamania Pryzmatu odróżniają spiralę i srebrne eskadry. Bursztynowe obrzeża Progu Helionu cofają się przed sylwetką okrętu dowodzenia. Jaśniejsze detale teł znajdują się przede wszystkim poza torem statku. Dwie warstwy gwiazd i powolne przewijanie mgławic nadają scenom ruch.
+
+| Rola | Kolor | Użycie |
+| --- | --- | --- |
+| Echo pasa | `#6FE5F2` | Krawędzie pierścienia, akcent karty etapu |
+| Załamanie Pryzmatu | `#BEABFF` | Pył, karta etapu i oprawa modułu wiązki |
+| Próg Helionu | `#FFBC86` | Horyzont, karta etapu i metal Asteriona |
+| Zagrożenie | `#FF938B` | Pociski wroga i oznaczenia niebezpiecznych pasów |
+
+- Peregrine, Scout, Razor i kadłub użyty dla Wardena pochodzą z własnych zasobów 0.7.1. Matowy obrys wrogów i punktowe światło wspierają rozpoznawanie sylwetek na różnych tłach.
+- Asterion ma oryginalną teksturę WebP z kanałem alfa. Opracowano ją jako widok od góry z dwiema rozsuniętymi bateriami, centralnym rdzeniem i grafitowym pancerzem. Okręt rozpada się na osobno animowane fragmenty poszycia i krótkie rozbłyski.
+- Ilustrację Asteriona i trzy tła przygotowano dla tej gry przy pomocy generatora obrazów. Tła wykadrowano i zapisano jako JPEG. Pozostałe zasoby, dźwięki i typografia zachowują opisane wyżej pochodzenie.
+- Obszar walki ma czytelny kierunek. Przyjazny ogień rozróżniają pociski świetlne, plazma, złote ślady rakiet i fioletowa wiązka. Efekty trafienia są krótkie. Ostrzeżenie o kurtynie pokazuje granice zagrożonych pasów jeszcze przed strzałem.
+- U góry pola są nazwa etapu, numer fali i pasek bossa. Kadłub oraz tryb i ranga broni znajdują się w dolnym HUD. Wspólna typografia i panele łączą kampanię z istniejącym hangarem i sklepem.
+
+Ocena czytelności w ruchu, kontrastu na ekranie telefonu i jakości dźwięku na głośniku wymaga fizycznego urządzenia. [Weryfikacja obrazu i ograniczenia](VERSION_VERTICAL_0_8_0_DEV.md)

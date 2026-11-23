@@ -78,6 +78,7 @@ func _ready() -> void:
 
 
 func show_menu(sortie: Dictionary = {}) -> void:
+	var campaign := bool(sortie.get("campaign_mode", false))
 	_clear_modal()
 	_drop_store()
 	_drop_hangar()
@@ -116,7 +117,7 @@ func show_menu(sortie: Dictionary = {}) -> void:
 	wordmark.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	wordmark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	signature.add_child(wordmark)
-	_label(wordmark, "S P A C E   S U R V I V O R", _detail, 23, Palette.CYAN)
+	_label(wordmark, "P R Ó G   H E L I O N U" if campaign else "S P A C E   S U R V I V O R", _detail, 23, Palette.CYAN)
 	_rail(wordmark, Palette.CYAN)
 	var settings := _button(signature, "SettingsButton", "", settings_requested.emit)
 	settings.custom_minimum_size.x = 56.0
@@ -142,19 +143,20 @@ func show_menu(sortie: Dictionary = {}) -> void:
 	var mission := _column(1)
 	mission.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(mission)
-	_tag(mission, "SEKTOR MISJI", Palette.MUTED, 13)
+	_tag(mission, "KAMPANIA" if campaign else "SEKTOR MISJI", Palette.MUTED, 14)
 	_tag(mission, str(sortie.get("sector_title", Mission.title)).to_upper(), Palette.TEXT, 31)
 	var duration := float(sortie.get("duration", Mission.duration_seconds))
 	var clock := _column(1)
 	clock.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(clock)
-	_tag(clock, "CZAS LOTU", Palette.MUTED, 13)
-	_tag(clock, _clock(duration), Palette.CYAN, 26)
-	_body(details, "Odeprzyj fale floty i zniszcz okręt dowodzenia.", 20)
+	_tag(clock, "UKOŃCZONE" if campaign else "CZAS LOTU", Palette.MUTED, 14)
+	_tag(clock, str(sortie.get("route_progress", "0 / 3")) if campaign else _clock(duration), Palette.CYAN, 26)
+	_body(details, "Przebij się przez trzy sektory i powstrzymaj Asteriona." if campaign else
+		"Odeprzyj fale floty i zniszcz okręt dowodzenia.", 20)
 
 	var actions := _row(10)
 	bottom.add_child(actions)
-	var launch := _button(actions, "LaunchButton", "ROZPOCZNIJ MISJĘ", launch_requested.emit, true)
+	var launch := _button(actions, "LaunchButton", "KAMPANIA" if campaign else "ROZPOCZNIJ MISJĘ", launch_requested.emit, true)
 	launch.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_button_glyph(launch, "arrow", Palette.NIGHT, true)
 	var hangar := _button(actions, "HangarButton", "HANGAR", hangar_requested.emit)
@@ -180,6 +182,7 @@ func show_hangar(data: Dictionary, tab: String = "overview") -> void:
 	_telemetry = {}
 	if not is_instance_valid(_hangar):
 		_hangar = Hangar.new()
+		_hangar.campaign_mode = bool(data.get("campaign_mode", false))
 		_hangar.name = "Hangar"
 		_hangar.action_requested.connect(hangar_action.emit)
 		add_child(_hangar)

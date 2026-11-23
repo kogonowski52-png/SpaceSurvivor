@@ -63,7 +63,7 @@ func _ready() -> void:
 	layer.layer = 10
 	add_child(layer)
 
-	ui = Interface.new()
+	ui = _make_interface()
 	ui.name = "Interface"
 	ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	layer.add_child(ui)
@@ -81,9 +81,25 @@ func _ready() -> void:
 	ui.rewarded_ad_requested.connect(_request_ad)
 	ui.revive_declined.connect(_decline_revive)
 	_setup_commerce()
-	ui.show_menu(progression.sortie())
+	ui.show_menu(_menu_data())
 	if OS.get_cmdline_user_args().has("--diagnostics"):
 		_set_debug_metrics(true)
+
+
+func _make_interface() -> Interface:
+	return Interface.new()
+
+
+func _menu_data() -> Dictionary:
+	return progression.sortie()
+
+
+func _hangar_data() -> Dictionary:
+	return progression.snapshot()
+
+
+func _combat_actor() -> Node:
+	return arena
 
 
 func _input(event: InputEvent) -> void:
@@ -112,7 +128,7 @@ func _notification(what: int) -> void:
 		_pause_mission()
 	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		if phase == "hangar" and is_instance_valid(ui):
-			ui.show_hangar(progression.snapshot(), ui.hangar_tab())
+			ui.show_hangar(_hangar_data(), ui.hangar_tab())
 
 
 func _start_mission() -> void:
@@ -145,7 +161,7 @@ func _return_to_menu() -> void:
 	phase = "menu"
 	flight_audio.set_scene(phase)
 	_discard_arena()
-	ui.show_menu(progression.sortie())
+	ui.show_menu(_menu_data())
 
 
 func _open_hangar() -> void:
@@ -155,7 +171,7 @@ func _open_hangar() -> void:
 	flight_audio.set_scene(phase)
 	flight_audio.play_event("navigation")
 	_discard_arena()
-	ui.show_hangar(progression.snapshot())
+	ui.show_hangar(_hangar_data())
 
 
 func _hangar_action(action: String, value: String) -> void:
@@ -183,15 +199,16 @@ func _hangar_action(action: String, value: String) -> void:
 						flight_audio.play_event("reward")
 					_:
 						flight_audio.play_event("navigation")
-			ui.show_hangar(progression.snapshot(), tab)
+			ui.show_hangar(_hangar_data(), tab)
 
 
 func _pause_mission() -> void:
-	if phase != "combat" or not is_instance_valid(arena):
+	var flight := _combat_actor()
+	if phase != "combat" or not is_instance_valid(flight):
 		return
 	phase = "pause"
 	flight_audio.set_scene(phase)
-	arena.set_suspended(true)
+	flight.set_suspended(true)
 	ui.show_pause()
 
 
@@ -201,7 +218,7 @@ func _resume_mission() -> void:
 	phase = "combat"
 	flight_audio.set_scene(phase)
 	ui.show_hud()
-	arena.set_suspended(false)
+	_combat_actor().set_suspended(false)
 
 
 func _toggle_pause() -> void:
@@ -225,7 +242,7 @@ func _show_upgrades(cards: Array[Dictionary]) -> void:
 		return
 	phase = "upgrade"
 	flight_audio.set_scene(phase)
-	arena.set_suspended(true)
+	_combat_actor().set_suspended(true)
 	ui.show_upgrades(cards)
 
 
@@ -243,7 +260,7 @@ func _finish_mission(result: Dictionary) -> void:
 		return
 	phase = "result"
 	flight_audio.set_scene(phase)
-	arena.set_suspended(true)
+	_combat_actor().set_suspended(true)
 	flight_audio.play_event("victory" if result.get("won", false) else "defeat")
 	_result = result.duplicate()
 	_result.merge(progression.credit_mission(result, active_sortie.sector_id, _flight_id), true)
@@ -292,7 +309,7 @@ func _open_store() -> void:
 
 func _refresh_hangar_account() -> void:
 	if phase == "hangar":
-		ui.show_hangar(progression.snapshot(), ui.hangar_tab())
+		ui.show_hangar(_hangar_data(), ui.hangar_tab())
 
 
 func _leave_store() -> void:
@@ -301,7 +318,7 @@ func _leave_store() -> void:
 	if _store_origin == "hangar":
 		phase = "hangar"
 		flight_audio.set_scene(phase)
-		ui.show_hangar(progression.snapshot(), _store_return_tab)
+		ui.show_hangar(_hangar_data(), _store_return_tab)
 	else:
 		_return_to_menu()
 
@@ -382,10 +399,11 @@ func _offer_revive() -> void:
 
 
 func _decline_revive() -> void:
-	if phase != "revive" or ads.busy() or not is_instance_valid(arena) or not arena.can_revive():
+	var flight := _combat_actor()
+	if phase != "revive" or ads.busy() or not is_instance_valid(flight) or not flight.can_revive():
 		return
 	phase = "combat"
-	arena.decline_revive()
+	flight.decline_revive()
 
 
 func _refresh_result() -> void:
@@ -406,7 +424,8 @@ func _request_ad(placement: String) -> void:
 			if phase != "result" or not bool(_result.get("ok", false)):
 				return
 		"revive":
-			if phase != "revive" or not is_instance_valid(arena) or not arena.can_revive():
+			var flight := _combat_actor()
+			if phase != "revive" or not is_instance_valid(flight) or not flight.can_revive():
 				return
 		_:
 			return
@@ -428,7 +447,8 @@ func _ad_status(state: String, message: String) -> void:
 
 
 func _credit_ad(placement: String, scope: String) -> void:
-	if placement == "revive" and (phase != "revive" or scope != _flight_id or not arena.can_revive()):
+	var flight := _combat_actor()
+	if placement == "revive" and (phase != "revive" or scope != _flight_id or not is_instance_valid(flight) or not flight.can_revive()):
 		return
 	var outcome := progression.claim_rewarded_ad(placement, scope)
 	if outcome.ok and scope == _flight_id:
@@ -436,7 +456,7 @@ func _credit_ad(placement: String, scope: String) -> void:
 			"revive":
 				phase = "combat"
 				flight_audio.set_scene(phase)
-				arena.revive()
+				flight.revive()
 				ui.show_hud()
 				return
 			"double":
@@ -480,7 +500,7 @@ func _set_debug_metrics(enabled: bool) -> void:
 		return
 	_debug_metrics = DebugFlightMetrics.new()
 	_debug_metrics.name = "DebugFlightMetrics"
-	_debug_metrics.arena_provider = func() -> Arena: return arena if phase in ["combat", "pause"] else null
+	_debug_metrics.arena_provider = func() -> Node: return _combat_actor() if phase in ["combat", "pause"] else null
 	ui.get_parent().add_child(_debug_metrics)
 
 

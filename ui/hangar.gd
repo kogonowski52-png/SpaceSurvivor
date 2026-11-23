@@ -38,6 +38,7 @@ var _body: ScrollContainer
 var _content: VBoxContainer
 var _tabs: Dictionary
 var _revision := 0
+var campaign_mode := false
 var _face := FontVariation.new()
 
 
@@ -63,7 +64,7 @@ func refresh(data: Dictionary, tab: String = "overview") -> void:
 	_crystals.text = str(_profile.get("crystals", 0))
 	_back_button.text = "‹ HANGAR" if tab == "workshop" else "‹ MENU"
 	var sector: Dictionary = Catalog.SECTORS.get(str(_profile.get("sector_id", "peryhelium")), Catalog.SECTORS["peryhelium"])
-	_launch_button.text = "ROZPOCZNIJ MISJĘ  ·  %s" % str(sector["title"]).to_upper()
+	_launch_button.text = "OTWÓRZ KAMPANIĘ" if campaign_mode else "ROZPOCZNIJ MISJĘ  ·  %s" % str(sector["title"]).to_upper()
 	_status.text = str(data.get("message", ""))
 	_status.visible = not _status.text.is_empty()
 	_status.modulate = Palette.CYAN if not str(data.get("highlight", "")).is_empty() else Color.WHITE
@@ -175,6 +176,8 @@ func _build_shell() -> void:
 	var nav := _row(5)
 	shell.add_child(nav)
 	for key in TABS:
+		if campaign_mode and key == "sectors":
+			continue
 		var tab_button := _button(nav, "HangarTab%s" % key.capitalize(), TABS[key], _switch_tab.bind(key))
 		tab_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tab_button.add_theme_font_size_override("font_size", 14)
@@ -214,7 +217,10 @@ func _overview(parent: VBoxContainer) -> void:
 	var name_label := _label(parent, ship["title"], 36, Palette.TEXT)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_preview(parent, selected, ship)
-	var description := _label(parent, ship["description"], 20, Palette.TEXT, true)
+	var traits := str(ship["description"])
+	if campaign_mode:
+		traits = traits.replace("doświadczenie", "punkty za zestrzelenia")
+	var description := _label(parent, traits, 20, Palette.TEXT, true)
 	description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	var picker := _row(7)

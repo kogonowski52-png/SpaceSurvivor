@@ -4,7 +4,8 @@ extends RefCounted
 const Catalog := preload("res://data/progression_catalog.gd")
 const Offers := preload("res://data/store/commerce_catalog.gd")
 const Wallet := preload("res://data/store/wallet.gd")
-const VERSION := 3
+const Campaign := preload("res://vertical/campaign.gd")
+const VERSION := 4
 const MAX_LEVEL := 5
 const TRACKS := ["hull", "drive", "output"]
 const STARTER_ITEMS := ["pulse_coil", "titanium_plate", "trim_nozzle", "flux_cell", "escort_bay"]
@@ -274,6 +275,9 @@ func credit_mission(result: Dictionary, sector_id: String, flight_id: String = "
 	if flight_id.length() > 64 or (not flight_id.is_empty() and _data.commerce.receipts.has("flight:" + flight_id)):
 		return _unsaved_result()
 	var candidate := _data.duplicate(true)
+	var stage := str(result.get("stage", ""))
+	if not stage.is_empty() and not Campaign.access(candidate.campaign, stage):
+		return _unsaved_result()
 	var seconds := clampf(float(result.get("seconds", 0)), 0, 1800)
 	var kills := _count(result.get("kills", 0))
 	var won := bool(result.get("won", false))
@@ -289,6 +293,10 @@ func credit_mission(result: Dictionary, sector_id: String, flight_id: String = "
 	candidate.crates += crates
 	candidate.crystals += crystals
 	candidate.wins += int(won)
+	if not stage.is_empty():
+		var previous: Dictionary = candidate.campaign.get(stage, {})
+		candidate.campaign[stage] = {"cleared": won or bool(previous.get("cleared", false)),
+			"best": maxi(_count(previous.get("best", 0)), _count(result.get("score", 0)))}
 	if not flight_id.is_empty():
 		candidate.commerce.receipts["flight:" + flight_id] = "flight"
 		candidate.commerce.flight = {"id": flight_id, "doubled": false, "coins": coins,
@@ -440,7 +448,7 @@ func _daily_state(profile: Dictionary, today: String) -> Dictionary:
 func _fresh() -> Dictionary:
 	return {
 		"coins": 420, "crystals": 0, "materials": 90, "wins": 0, "crates": 1, "crate_streak": 0,
-		"commerce": Wallet.empty_state(),
+		"commerce": Wallet.empty_state(), "campaign": {},
 		"ship_id": "peregrine", "sector_id": "peryhelium", "inventory": STARTER_ITEMS.duplicate(),
 		"levels": {}, "equipped": {}, "totals": {"flights": 0, "kills": 0, "wins": 0},
 		"achievements": [], "daily": {}, "calendar_day": 0, "calendar_date": "", "last_day": "",
@@ -551,6 +559,11 @@ func _normalize(source: Dictionary, version: int) -> Dictionary:
 		clean.totals[key] = _count(totals.get(key, 0))
 		clean.daily[key] = _count(daily.get(key, 0))
 	clean.achievements = _string_list(source.get("achievements"))
+	var campaign := _dictionary(source.get("campaign"))
+	for id: String in Campaign.ROUTE:
+		if campaign.has(id) and Campaign.access(clean.campaign, id):
+			var record := _dictionary(campaign[id])
+			clean.campaign[id] = {"cleared": record.get("cleared", false) == true, "best": _count(record.get("best", 0))}
 	_restore_wallet(clean, _dictionary(source.get("commerce")))
 	return clean
 

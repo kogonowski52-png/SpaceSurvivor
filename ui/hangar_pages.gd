@@ -21,6 +21,7 @@ const SECTOR_VIEW := {
 const SURFACE := Color("#0e1929f5")
 
 var _display := FontVariation.new()
+var _campaign_mode := false
 
 
 func _init() -> void:
@@ -30,6 +31,7 @@ func _init() -> void:
 
 func build(tab: String, content: VBoxContainer, data: Dictionary, on_action: Callable) -> void:
 	var profile: Dictionary = data.get("profile", {})
+	_campaign_mode = bool(data.get("campaign_mode", false))
 	content.add_theme_constant_override("separation", 12)
 	match tab:
 		"inventory":
@@ -110,7 +112,7 @@ func _item_card(parent: Container, id: String, spec: Dictionary, equipped: bool,
 	_copy(labels, str(SLOT_NAMES[spec["slot"]]).to_upper(), 15, Palette.MUTED, true)
 	_chip(labels, rarity.to_upper(), accent)
 	_copy(text, spec["title"], 24, Palette.TEXT, true)
-	_copy(text, spec["description"], 20, Palette.MUTED)
+	_copy(text, _item_description(spec), 20, Palette.MUTED)
 	if equipped:
 		var status := _row(text, 5)
 		_chip(status, "NA POKŁADZIE", Palette.CYAN)
@@ -121,6 +123,11 @@ func _item_card(parent: Container, id: String, spec: Dictionary, equipped: bool,
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		controls.add_child(spacer)
 		_button(controls, "Equip_" + id, "WYPOSAŻ", action.bind("equip", id), accent, 136, 17)
+
+
+func _item_description(spec: Dictionary) -> String:
+	var description := str(spec["description"])
+	return description.replace("Doświadczenie z rdzeni", "Doświadczenie").replace("Doświadczenie", "Punkty za zestrzelenia") if _campaign_mode else description
 
 
 func _sectors(parent: VBoxContainer, profile: Dictionary, action: Callable) -> void:
@@ -229,7 +236,7 @@ func _recovered_module(parent: VBoxContainer, loot_id: String, animate: bool) ->
 	details.alignment = BoxContainer.ALIGNMENT_CENTER
 	_copy(details, tier.to_upper() + "  ·  " + str(SLOT_NAMES[slot]).to_upper(), 16, color, true)
 	_copy(details, str(loot["title"]), 28 if premium else 24, Palette.TEXT, true)
-	_copy(details, str(loot["description"]), 20 if premium else 18, Palette.MUTED)
+	_copy(details, _item_description(loot), 20 if premium else 18, Palette.MUTED)
 	if animate:
 		_reveal_motion(panel, badge, color, premium)
 
