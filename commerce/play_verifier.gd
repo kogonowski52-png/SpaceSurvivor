@@ -68,7 +68,7 @@ func _call(path: String, token: String, data: Dictionary) -> Dictionary:
 	var headers := PackedStringArray(["Content-Type: application/json", "Authorization: Bearer " + token])
 	var body := data.duplicate()
 	body.installation = _installation
-	var error := node.request(_endpoint + "/v1/play/" + path, headers, HTTPClient.METHOD_POST, JSON.stringify(body))
+	var error := node.request(_endpoint + "/v2/play/" + path, headers, HTTPClient.METHOD_POST, JSON.stringify(body))
 	if error != OK:
 		node.queue_free()
 		return {"ok": false, "error": "server_unavailable"}

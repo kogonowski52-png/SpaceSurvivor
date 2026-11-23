@@ -39,6 +39,10 @@ func online_ready() -> bool:
 	return false
 
 
+func checkout_available() -> bool:
+	return is_test()
+
+
 func can_connect_account() -> bool:
 	return false
 
@@ -51,7 +55,11 @@ func authorize(_receipt: Dictionary) -> Dictionary:
 	return {"ok": false, "error": "server_unavailable"}
 
 
-func outstanding() -> Dictionary:
+func account_wallet() -> Dictionary:
+	return {"ok": false, "error": "server_unavailable"}
+
+
+func spend_account(_offer: String, _request_id: String) -> Dictionary:
 	return {"ok": false, "error": "server_unavailable"}
 
 

@@ -20,7 +20,7 @@ The game offers optional rewarded ads. Depending on its configuration, Google Mo
 
 ## Purchases and purchase accounts
 
-Google Play processes payments. The app and verification service process a pseudonymous account ID, a random installation ID, the purchase token and product ID, the purchase status, and delivery confirmation. These records support verification, entitlement recovery, and prevention of duplicate rewards. Google Play handles card information. Linking an account sends its individual activation code to the publisher's service over HTTPS. [Google Privacy Policy](https://policies.google.com/privacy)
+Google Play processes payments. The app and verification service process a pseudonymous account ID, a random installation ID, the purchase token and product ID, the purchase status, and delivery confirmation. The wallet also records purchased Crystals, spending, and refund adjustments. These records support verification, recovery of balances and entitlements, and prevention of duplicate rewards. Google Play handles card information. Linking a test account sends its individual activation code to the publisher's service over HTTPS. [Google Privacy Policy](https://policies.google.com/privacy)
 
 ## Services, retention, and rights
 

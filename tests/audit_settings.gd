@@ -12,6 +12,9 @@ func _run() -> void:
 		quit(1)
 		return
 	_check(game.phase == "settings", "title settings button opens controls")
+	if OS.is_debug_build():
+		await _click("DiagnosticsButton")
+		_check(is_instance_valid(game._debug_metrics), "debug settings toggle enables flight diagnostics")
 	_check(_button("PrivacyPolicyButton") == null and _button("PrivacyOptionsButton") == null,
 		"desktop simulator exposes no unconfigured policy link or UMP button")
 	game.ads.adapter.privacy_changed.emit(true, "")
@@ -36,6 +39,8 @@ func _run() -> void:
 	game._privacy_policy_url = "https://privacy.example.invalid/galaxy-strike"
 	await _click("SettingsButton")
 	_check(_button("PrivacyPolicyButton") != null, "a configured policy URL adds a link in settings")
+	if OS.is_debug_build():
+		await _click("DiagnosticsButton")
 	master = _slider("MasterVolume")
 	_check(master != null and master.value == 52.0, "fresh scene loads the saved audio levels")
 	if master != null:
@@ -43,6 +48,9 @@ func _run() -> void:
 	await _click("SettingsCancel")
 	_check(game.phase == "menu" and is_equal_approx(game.mix_preferences.levels.x, 0.52), "cancel leaves the saved mix intact")
 	await _click("LaunchButton")
+	if OS.is_debug_build():
+		var readout := _visible_control("DebugFlightReadout") as Label
+		_check(readout != null and readout.text.contains("FPS") and readout.text.contains("WROGÓW"), "flight diagnostics reports FPS and active enemies")
 	await _click("PauseButton")
 	var paused := _seconds()
 	await _click("PauseSettingsButton")

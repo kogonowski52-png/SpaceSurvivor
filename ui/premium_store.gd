@@ -83,6 +83,10 @@ func _ready() -> void:
 		button.add_theme_font_size_override("font_size", 13)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_tabs[id] = button
+	var status_body := _panel(shell, Palette.CYAN, 10)
+	_status_plate = status_body.get_parent() as Control
+	_status = _label(status_body, "", 18, Palette.TEXT)
+	_status.name = "StoreStatus"
 	_scroll = ScrollContainer.new()
 	_scroll.name = "StoreScroll"
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -93,10 +97,6 @@ func _ready() -> void:
 	scrollbar.add_theme_stylebox_override("scroll", Palette.panel(Color("#0a1521"), Color.TRANSPARENT, 2))
 	for style in ["grabber", "grabber_highlight", "grabber_pressed"]:
 		scrollbar.add_theme_stylebox_override(style, Palette.panel(Palette.OUTLINE, Color.TRANSPARENT, 2))
-	var status_body := _panel(shell, Palette.CYAN, 10)
-	_status_plate = status_body.get_parent() as Control
-	_status = _label(status_body, "", 18, Palette.TEXT)
-	_status.name = "StoreStatus"
 
 
 func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
@@ -130,11 +130,11 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 	}
 	_label(body, subtitle[current_tab], 27, Palette.TEXT, true)
 	if not data.simulation and not data.checkout_ready and current_tab in ["featured", "crystals", "season"]:
-		_label(body, "Zakupy wymagają połączenia konta z serwerem gry.", 17, Palette.AMBER)
-	elif data.play_test and current_tab in ["featured", "crystals", "season"]:
+		_label(body, "Saldo kupionych Crystals pojawi się po połączeniu konta.", 17, Palette.AMBER)
+	elif data.play_test and data.purchase_allowed and current_tab in ["featured", "crystals", "season"]:
 		_label(body, "Przed zatwierdzeniem wybierz kartę testową Google Play.", 17, Palette.AMBER)
 	if current_tab == "crystals":
-		_label(body, "Crystals zdobędziesz też za zwycięstwa, kalendarz i darmowy tor Helionu.", 18, Palette.MUTED)
+		_wallet_details(body)
 	for id: String in Offers.OFFERS:
 		var offer: Dictionary = Offers.OFFERS[id]
 		if offer.tab == current_tab:
@@ -151,6 +151,20 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 					"art": "peregrine", "skin": "peregrine_helion", "kind": "earned"})
 	# Layout settles after adding product cards. Restore the old scroll position on status updates.
 	_scroll.set_deferred("scroll_vertical", offset)
+
+
+func _wallet_details(parent: Container) -> void:
+	_label(parent, "Crystals zdobędziesz za zwycięstwa, kalendarz i darmowy tor Helionu.", 18, Palette.MUTED)
+	if _data.simulation:
+		return
+	var paid: Dictionary = _data.paid_wallet
+	_label(parent, "Zdobyte lokalnie · %d Crystals" % _data.profile.crystals, 18, Palette.TEXT)
+	if paid.known:
+		_label(parent, "%s · %d Crystals" % ["Konto" if paid.online else "Ostatni odczyt konta", paid.crystals], 18, Palette.VIOLET)
+		if paid.debt > 0:
+			_label(parent, "Do rozliczenia po zwrotach · %d Crystals" % paid.debt, 18, Palette.AMBER)
+	if not paid.online:
+		_label(parent, "Wydatki z konta wymagają połączenia.", 17, Palette.MUTED)
 
 
 func _product(parent: Container, id: String, offer: Dictionary) -> void:
@@ -193,8 +207,10 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 	elif offer.kind == "play":
 		var pending: bool = id in _data.pending
 		var price: String = listing.get("price", "")
-		var available: bool = _data.simulation or (_data.checkout_ready and not price.is_empty())
+		var available: bool = _data.simulation or (_data.purchase_allowed and not price.is_empty())
 		var purchase_label := "SYMULUJ ZAKUP" if _data.simulation else ("CENA NIEDOSTĘPNA" if price.is_empty() else "KUP · " + price)
+		if not _data.purchase_allowed:
+			purchase_label = "PŁATNOŚCI WYŁĄCZONE"
 		_button(card, "BuyOffer_" + id, "ZAMÓWIENIE OCZEKUJE" if pending else purchase_label,
 			_action.bind("billing", id), art_tint, available and not pending).disabled = pending or _data.billing_busy or not available
 	else:
@@ -202,8 +218,12 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 			var collected: int = offer.items.filter(func(item: String) -> bool: return item in profile.inventory).size()
 			if collected > 0:
 				_label(card, "Masz już %d z %d modułów. Pakiet doda brakujące." % [collected, offer.items.size()], 16, Palette.MUTED)
-		_button(card, "BuyOffer_" + id, "KUP · " + Offers.format_cost(offer),
-			_action.bind("wallet", id), art_tint, true)
+		var bought_with_paid: bool = offer.currency == "crystals" and not _data.simulation and profile.crystals < offer.price \
+			and _data.paid_wallet.online and _data.paid_wallet.crystals >= offer.price
+		var action := "wallet_account" if bought_with_paid else "wallet"
+		var cost_text := "Z KONTA · " if bought_with_paid else "KUP · "
+		_button(card, "BuyOffer_" + id, cost_text + Offers.format_cost(offer),
+			_action.bind(action, id), art_tint, true).disabled = bought_with_paid and _data.billing_busy
 	card.modulate.a = 0.82
 	card.create_tween().set_trans(Tween.TRANS_CUBIC).tween_property(card, "modulate:a", 1.0, 0.18)
 

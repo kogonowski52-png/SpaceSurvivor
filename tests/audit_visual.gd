@@ -17,6 +17,8 @@ func _run() -> void:
 	await _audit_capture("01-menu")
 	await _audit_hangar()
 	await _audit_sortie()
+	if OS.get_cmdline_user_args().has("--flight-detail"):
+		await _audit_flight_detail()
 	await _audit_settings()
 	print("QA visual audit: %d failure(s)" % failures)
 	quit(0 if failures == 0 else 1)
@@ -100,6 +102,30 @@ func _result_fixture(result: Dictionary, label: String) -> void:
 	await _frames(12)
 	_check(game.phase == "result" and _visible_control("RewardRow") != null, "renders played result and reward summary")
 	await _audit_capture(label)
+
+
+func _audit_flight_detail() -> void:
+	if not await _click("SettingsButton") or not await _click("DiagnosticsButton"):
+		return
+	await _click("SettingsCancel")
+	if not await _click("LaunchButton"):
+		return
+	var arena: Node2D = game.arena
+	await _audit_capture("15-diagnostyka")
+	print("Combat detail fixture: equip a laser and place an enemy in visual range.")
+	_check(arena._loadout.increment("laser"), "laser becomes active in the flight fixture")
+	arena._spawn_enemy(arena.EnemyKind.BASTION, arena._player_position + Vector2(110, -190))
+	await _steps(3)
+	_check(arena._arsenal._laser_remaining > 0, "the rendered laser is firing")
+	await _capture_page("16-laser")
+	print("Combat detail fixture: apply lethal damage to trigger the real boss destruction effect.")
+	arena._spawn_enemy(arena.EnemyKind.BOSS, arena._player_position + Vector2(0, -185))
+	var boss_index: int = arena._enemies.size() - 1
+	arena._damage_enemy(boss_index, arena._enemies[boss_index].hp + 1.0, Vector2.UP)
+	_check(not arena._fx._collapses.is_empty(), "boss defeat triggers the live destruction renderer")
+	await _capture_page("17-eksplozja-bossa")
+	await _click("PauseButton")
+	await _click("MenuButton")
 
 
 func _audit_settings() -> void:

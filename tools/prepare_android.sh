@@ -56,8 +56,14 @@ entries = """
             android:value="${galaxyPurchaseServer}" />
         <meta-data android:name="com.galaxystrike.play_mode"
             android:value="${galaxyPlayMode}" />
+        <meta-data android:name="com.galaxystrike.license_checkout"
+            android:value="${galaxyLicenseCheckout}" />
         <meta-data android:name="com.galaxystrike.privacy_policy"
             android:value="${galaxyPrivacyPolicy}" />
+        <meta-data android:name="com.galaxystrike.ump_debug_device"
+            android:value="${galaxyUmpTestDevice}" />
+        <meta-data android:name="com.galaxystrike.ump_debug_geography"
+            android:value="${galaxyUmpGeography}" />
         <!-- End Galaxy Strike bridge -->
 """
 if start in manifest:

@@ -38,6 +38,10 @@ func online_ready() -> bool:
 	return _bridge != null and _verifier.ready_to_verify()
 
 
+func checkout_available() -> bool:
+	return online_ready() and _bridge.licenseCheckoutEnabled()
+
+
 func can_connect_account() -> bool:
 	return _bridge != null and _verifier.endpoint_ready()
 
@@ -51,8 +55,8 @@ func has_pending(sku: String) -> bool:
 
 
 func begin_purchase(request_id: String, sku: String) -> void:
-	if not online_ready():
-		answered.emit(request_id, "verification_unavailable", [])
+	if not checkout_available():
+		answered.emit(request_id, "payments_disabled", [])
 		return
 	if sku not in _products:
 		refresh_catalog()
@@ -62,6 +66,9 @@ func begin_purchase(request_id: String, sku: String) -> void:
 	var account: Variant = session.get("obfuscated_account_id")
 	if not session.ok or not account is String or account.length() != 64 or not account.is_valid_hex_number():
 		answered.emit(request_id, "network_error" if session.get("error") == "server_unavailable" else "verification_unavailable", [])
+		return
+	if session.get("license_checkout") != true:
+		answered.emit(request_id, "payments_disabled", [])
 		return
 	_bridge.startPurchase(request_id, sku, account)
 
@@ -77,8 +84,12 @@ func authorize(receipt: Dictionary) -> Dictionary:
 	return await _verifier.send("verify", {"sku": receipt.sku, "token": receipt.token})
 
 
-func outstanding() -> Dictionary:
-	return await _verifier.send("outstanding")
+func account_wallet() -> Dictionary:
+	return await _verifier.send("wallet")
+
+
+func spend_account(offer: String, request_id: String) -> Dictionary:
+	return await _verifier.send("spend", {"offer": offer, "request_id": request_id})
 
 
 func mark_received(delivery: String) -> Dictionary:

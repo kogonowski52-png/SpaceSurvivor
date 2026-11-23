@@ -13,11 +13,15 @@ if (admobApp != sampleApp && !unitIds.values().every { it ==~ /ca-app-pub-[0-9]+
 }
 def purchaseServer = System.getenv('GALAXY_PURCHASE_SERVER') ?: ''
 def playMode = System.getenv('GALAXY_PLAY_MODE') ?: 'test'
+def licenseCheckout = System.getenv('GALAXY_ENABLE_LICENSE_CHECKOUT') == '1'
 if (!(playMode in ['test', 'live'])) {
     throw new GradleException('GALAXY_PLAY_MODE must be test or live')
 }
 if (purchaseServer && !(purchaseServer ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[A-Za-z0-9_\/-]+)?\/?/)) {
     throw new GradleException('GALAXY_PURCHASE_SERVER must be an HTTPS origin or base path')
+}
+if (licenseCheckout && (playMode != 'test' || !purchaseServer)) {
+    throw new GradleException('License checkout requires test mode and a verification server')
 }
 def privacyPolicy = System.getenv('GALAXY_PRIVACY_POLICY_URL') ?: ''
 if (privacyPolicy && !(privacyPolicy ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[A-Za-z0-9._~\/-]+)?/)) {
@@ -25,6 +29,12 @@ if (privacyPolicy && !(privacyPolicy ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[
 }
 if (!privacyPolicy && (playMode == 'live' || admobApp != sampleApp)) {
     throw new GradleException('Configure the public privacy policy URL for a live integration')
+}
+def umpTestDevice = System.getenv('GALAXY_UMP_DEBUG_DEVICE') ?: ''
+def umpGeography = System.getenv('GALAXY_UMP_DEBUG_GEOGRAPHY') ?: ''
+if ((umpTestDevice || umpGeography) && (!(umpTestDevice ==~ /[A-Fa-f0-9]{32}/)
+        || !(umpGeography in ['eea', 'us', 'other']))) {
+    throw new GradleException('UMP debug geography requires a test device hash and eea, us, or other')
 }
 
 android {
@@ -37,8 +47,19 @@ android {
             galaxyRewardedRevive: unitIds.revive,
             galaxyPurchaseServer: purchaseServer,
             galaxyPlayMode: playMode,
+            galaxyLicenseCheckout: licenseCheckout ? 'enabled' : 'disabled',
             galaxyPrivacyPolicy: privacyPolicy,
+            galaxyUmpTestDevice: '',
+            galaxyUmpGeography: '',
         ])
+    }
+    buildTypes {
+        debug {
+            manifestPlaceholders.putAll([
+                galaxyUmpTestDevice: umpTestDevice,
+                galaxyUmpGeography: umpGeography,
+            ])
+        }
     }
 }
 

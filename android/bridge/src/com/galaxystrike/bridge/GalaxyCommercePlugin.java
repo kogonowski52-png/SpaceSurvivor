@@ -96,7 +96,21 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
             && "live".equals(metadata(activity, "com.galaxystrike.play_mode")) ? "live" : "test";
     }
 
-    private static boolean debuggable(Activity activity) {
+    @UsedByGodot
+    public boolean licenseCheckoutEnabled() {
+        Activity activity = getActivity();
+        return activity != null && "test".equals(playMode())
+            && "enabled".equals(metadata(activity, "com.galaxystrike.license_checkout"));
+    }
+
+    @UsedByGodot
+    public int diagnosticPssKib() {
+        Activity activity = getActivity();
+        if (activity == null || !debuggable(activity)) return 0;
+        return (int) Math.min(android.os.Debug.getPss(), Integer.MAX_VALUE);
+    }
+
+    static boolean debuggable(Activity activity) {
         return (activity.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
@@ -123,6 +137,10 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
         Activity activity = getActivity();
         if (activity == null) {
             billingResult(requestId, "unavailable", "[]");
+            return;
+        }
+        if (!licenseCheckoutEnabled()) {
+            billingResult(requestId, "payments_disabled", "[]");
             return;
         }
         activity.runOnUiThread(() -> {

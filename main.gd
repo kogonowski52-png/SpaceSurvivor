@@ -13,6 +13,7 @@ const AdService := preload("res://commerce/ad_service.gd")
 const TestAdAdapter := preload("res://commerce/test_ad_adapter.gd")
 const AndroidBillingAdapter := preload("res://commerce/android_billing_adapter.gd")
 const AndroidAdAdapter := preload("res://commerce/android_ad_adapter.gd")
+const DebugFlightMetrics := preload("res://ui/debug_flight_metrics.gd")
 
 var arena: Arena
 var ui: Interface
@@ -37,6 +38,7 @@ var _result: Dictionary
 var _ad_message := ""
 var _play_test := false
 var _privacy_policy_url := ""
+var _debug_metrics: DebugFlightMetrics
 
 
 func _ready() -> void:
@@ -80,6 +82,8 @@ func _ready() -> void:
 	ui.revive_declined.connect(_decline_revive)
 	_setup_commerce()
 	ui.show_menu(progression.sortie())
+	if OS.get_cmdline_user_args().has("--diagnostics"):
+		_set_debug_metrics(true)
 
 
 func _input(event: InputEvent) -> void:
@@ -254,6 +258,7 @@ func _setup_commerce() -> void:
 	add_child(billing)
 	billing.status_changed.connect(_shop_status)
 	billing.catalog_changed.connect(_refresh_store)
+	billing.account_changed.connect(_refresh_hangar_account)
 	ads = AdService.new()
 	add_child(ads)
 	ads.status_changed.connect(_ad_status)
@@ -282,6 +287,12 @@ func _open_store() -> void:
 	flight_audio.play_event("navigation")
 	billing.adapter.refresh_catalog()
 	_refresh_store()
+	billing.refresh_balance()
+
+
+func _refresh_hangar_account() -> void:
+	if phase == "hangar":
+		ui.show_hangar(progression.snapshot(), ui.hangar_tab())
 
 
 func _leave_store() -> void:
@@ -308,6 +319,7 @@ func _refresh_store() -> void:
 		"pending": pending, "ad_busy": ads.busy(), "billing_busy": billing.busy(),
 		"simulation": billing.adapter.is_test(), "ad_label": ads.label(),
 		"catalog": billing.adapter.catalog(), "checkout_ready": billing.adapter.online_ready(),
+		"purchase_allowed": billing.adapter.checkout_available(), "paid_wallet": billing.account(),
 		"can_connect_account": billing.adapter.can_connect_account(),
 		"play_test": _play_test,
 		"billing_case": test_billing.scenario if test_billing != null else "",
@@ -330,6 +342,8 @@ func _store_action(action: String, value: String) -> void:
 			billing.connect_account(value)
 		"wallet":
 			_show_shop_outcome(progression.shop_buy(value))
+		"wallet_account":
+			billing.spend_paid(value)
 		"skin":
 			_show_shop_outcome(progression.shop_skin(value))
 		"season":
@@ -446,12 +460,28 @@ func _open_settings() -> void:
 	_settings.initial_mix = mix_preferences.levels
 	_settings.privacy_required = ads.privacy_required
 	_settings.privacy_policy_url = _privacy_policy_url
+	_settings.diagnostics_available = OS.is_debug_build()
+	_settings.diagnostics_enabled = is_instance_valid(_debug_metrics)
 	_settings.mix_previewed.connect(_preview_audio)
 	_settings.privacy_requested.connect(ads.show_privacy)
+	_settings.diagnostics_changed.connect(_set_debug_metrics)
 	_settings.effects_sample_requested.connect(flight_audio.play_event.bind("equip"))
 	_settings.confirmed.connect(_confirm_settings)
 	_settings.cancelled.connect(_cancel_settings)
 	ui.get_parent().add_child(_settings)
+
+
+func _set_debug_metrics(enabled: bool) -> void:
+	if not OS.is_debug_build() or enabled == is_instance_valid(_debug_metrics):
+		return
+	if not enabled:
+		_debug_metrics.queue_free()
+		_debug_metrics = null
+		return
+	_debug_metrics = DebugFlightMetrics.new()
+	_debug_metrics.name = "DebugFlightMetrics"
+	_debug_metrics.arena_provider = func() -> Arena: return arena if phase in ["combat", "pause"] else null
+	ui.get_parent().add_child(_debug_metrics)
 
 
 func _ad_privacy_changed(required: bool, message: String) -> void:

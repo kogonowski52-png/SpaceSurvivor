@@ -20,7 +20,7 @@ Gra oferuje dobrowolne reklamy z nagrodą. Konfiguracja Google Mobile Ads może 
 
 ## Zakupy i konto zakupów
 
-Google Play prowadzi rozliczenie płatności. Aplikacja i serwis weryfikacji przetwarzają pseudonimowy identyfikator konta, losowy identyfikator instalacji, token i identyfikator produktu, stan zakupu oraz potwierdzenie dostawy. Te dane służą do weryfikacji transakcji, odzyskiwania uprawnień i zapobiegania ponownej wypłacie. Dane karty są obsługiwane przez Google Play. Do połączenia konta gra wysyła przez HTTPS indywidualny kod wydany przez operatora. [Polityka prywatności Google](https://policies.google.com/privacy)
+Google Play prowadzi rozliczenie płatności. Aplikacja i serwis weryfikacji przetwarzają pseudonimowy identyfikator konta, losowy identyfikator instalacji, token i identyfikator produktu, stan zakupu oraz potwierdzenie dostawy. Portfel zapisuje przyznanie zakupionych Crystals, wydatki i korekty po zwrotach. Te dane służą do weryfikacji transakcji, odzyskiwania salda i uprawnień oraz zapobiegania ponownej wypłacie. Dane karty są obsługiwane przez Google Play. Do połączenia konta w testach gra wysyła przez HTTPS indywidualny kod wydany przez operatora. [Polityka prywatności Google](https://policies.google.com/privacy)
 
 ## Usługi, okresy przechowywania i prawa
 

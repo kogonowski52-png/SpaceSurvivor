@@ -1,4 +1,4 @@
-"""Galaxy Strike's reference Play verifier and durable purchase delivery service."""
+"""Google Play verification, account balances and refund reconciliation."""
 import hashlib
 import hmac
 import json
@@ -6,9 +6,10 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 PRODUCTS = {
     "gs_starter_v1": "acknowledge",
@@ -17,9 +18,14 @@ PRODUCTS = {
     "gs_crystals_900": "consume",
     "gs_helion_pass_v1": "acknowledge",
 }
+CRYSTAL_GRANTS = {"gs_starter_v1": 120, "gs_crystals_100": 100, "gs_crystals_350": 350, "gs_crystals_900": 900}
+PERMANENT_OFFERS = {"gs_starter_v1": "starter", "gs_helion_pass_v1": "season_helion"}
+WALLET_OFFERS = {"skin_ion": 45, "skin_frost": 55, "equipment_signal": 80}
 PACKAGE = "com.galaxystrike.spacesurvivor"
 SCOPES = ["https://www.googleapis.com/auth/androidpublisher"]
 HEX_ID = re.compile(r"[0-9a-f]{64}")
+REQUEST_ID = re.compile(r"[0-9a-f]{32}")
+DAY_MS = 86_400_000
 
 
 class Rejected(Exception):
@@ -61,15 +67,41 @@ class GooglePlay:
         body = {} if operation == "acknowledge" else None
         self._request("POST", f"/purchases/products/{sku}/tokens/{quote(token, safe='')}:{operation}", body)
 
+    def voided(self, since, until):
+        query = {"startTime": since, "endTime": until, "type": 0, "maxResults": 1000,
+                 "includeQuantityBasedPartialRefund": "true"}
+        seen = set()
+        while True:
+            page = self._request("GET", "/purchases/voidedpurchases?" + urlencode(query))
+            for row in page.get("voidedPurchases", []):
+                yield row["purchaseToken"]
+            token = page.get("tokenPagination", {}).get("nextPageToken")
+            if not token:
+                return
+            if token in seen:
+                raise Rejected(503, "google_unavailable")
+            seen.add(token)
+            query = {"token": token, "type": 0, "includeQuantityBasedPartialRefund": "true"}
+
 
 class Ledger:
-    def __init__(self, database, play, account_key, test_only):
+    def __init__(self, database, play, account_key, test_only, license_checkout=False):
         self.database = database
         self.play = play
         self.account_key = account_key
         self.test_only = test_only
+        self.license_checkout = test_only and license_checkout
         with closing(self._open()) as db:
             db.execute("PRAGMA journal_mode=WAL")
+        with closing(self._open()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("CREATE TABLE IF NOT EXISTS wallet_environment (mode TEXT PRIMARY KEY)")
+            mode = "test" if test_only else "live"
+            prior_mode = db.execute("SELECT mode FROM wallet_environment").fetchone()
+            if prior_mode and prior_mode["mode"] != mode:
+                raise ValueError("Use separate SQLite databases for live and test Play accounts.")
+            if prior_mode is None:
+                db.execute("INSERT INTO wallet_environment VALUES (?)", (mode,))
             db.execute("""CREATE TABLE IF NOT EXISTS orders (
                 id TEXT PRIMARY KEY,
                 player TEXT NOT NULL,
@@ -79,7 +111,29 @@ class Ledger:
                 received INTEGER NOT NULL DEFAULT 0,
                 finalized INTEGER NOT NULL DEFAULT 0
             )""")
-            db.commit()
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(orders)")}
+            for column in ("voided", "local_credit_bonus"):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE orders ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+            db.execute("""CREATE TABLE IF NOT EXISTS wallet_events (
+                seq INTEGER PRIMARY KEY,
+                event_id TEXT NOT NULL UNIQUE,
+                player TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('purchase', 'spend', 'refund')),
+                reference TEXT NOT NULL
+            )""")
+            db.execute("CREATE INDEX IF NOT EXISTS wallet_events_by_player ON wallet_events(player, seq)")
+            db.execute("CREATE INDEX IF NOT EXISTS orders_by_player ON orders(player, voided, sku)")
+            db.execute("""CREATE TABLE IF NOT EXISTS wallet_spends (
+                player TEXT NOT NULL,
+                request_id TEXT NOT NULL,
+                offer TEXT NOT NULL,
+                PRIMARY KEY(player, request_id),
+                UNIQUE(player, offer)
+            )""")
+            db.execute("CREATE TABLE IF NOT EXISTS voided_tokens (id TEXT PRIMARY KEY)")
+            db.execute("CREATE TABLE IF NOT EXISTS refund_cursor (id INTEGER PRIMARY KEY CHECK(id = 1), scanned_until INTEGER NOT NULL)")
 
     def _open(self):
         connection = sqlite3.connect(self.database, timeout=8)
@@ -107,6 +161,8 @@ class Ledger:
         return purchase.get("acknowledgementState") == "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"
 
     def verify(self, player, installation, sku, token):
+        if not self.test_only:
+            raise Rejected(403, "payments_disabled")
         if not isinstance(sku, str) or sku not in PRODUCTS or not isinstance(token, str) or not 8 <= len(token) <= 2048:
             raise Rejected(400, "invalid_request")
         purchase = self.play.purchase(token)
@@ -115,45 +171,114 @@ class Ledger:
 
         with closing(self._open()) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM voided_tokens WHERE id = ?", (delivery,)).fetchone():
+                raise Rejected(422, "purchase_voided")
             row = db.execute("SELECT * FROM orders WHERE id = ?", (delivery,)).fetchone()
+            credited = False
             if row is None:
-                # If a Play token was finalized before this ledger saw it, restore permanent
-                # rights but never pay its currency again.
-                db.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?)",
-                           (delivery, player, installation, sku, token, int(platform_finished), int(platform_finished)))
-                row = db.execute("SELECT * FROM orders WHERE id = ?", (delivery,)).fetchone()
-            if row["player"] != player or row["sku"] != sku:
+                # A consumed/acknowledged orphan or a 0.6 row has no safely reconstructible balance.
+                already_owned = PERMANENT_OFFERS.get(sku) in self._owned(db, player)
+                credited = not platform_finished and not already_owned
+                bonus = credited and sku == "gs_starter_v1"
+                db.execute("""INSERT INTO orders
+                    (id, player, installation, sku, token, received, finalized, local_credit_bonus)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (delivery, player, installation, sku, token, int(not bonus), int(platform_finished), int(bonus)))
+                self._event(db, "purchase:" + delivery, player, CRYSTAL_GRANTS.get(sku, 0) if credited else 0,
+                            "purchase", delivery)
+            elif row["player"] != player or row["sku"] != sku:
                 raise Rejected(403, "wrong_account")
-            return self._describe(row, installation)
+            return {"sku": sku, "credited": credited, **self._account_data(db, player, installation)}
 
     @staticmethod
-    def _describe(row, installation):
-        if row["received"]:
-            mode = "restore" if PRODUCTS[row["sku"]] == "acknowledge" else "received"
-        elif row["installation"] == installation:
-            mode = "deliver"
-        else:
-            mode = "other_device"
-        return {"sku": row["sku"], "delivery_id": row["id"], "mode": mode}
+    def _event(db, event_id, player, amount, kind, reference):
+        db.execute("INSERT INTO wallet_events (event_id, player, amount, kind, reference) VALUES (?, ?, ?, ?, ?)",
+                   (event_id, player, amount, kind, reference))
 
-    def outstanding(self, player, installation):
+    @staticmethod
+    def _owned(db, player, include_spends=True):
+        owned = set()
+        if include_spends:
+            owned.update(row["offer"] for row in db.execute("SELECT offer FROM wallet_spends WHERE player = ?", (player,)))
+        for row in db.execute("SELECT DISTINCT sku FROM orders WHERE player = ? AND voided = 0", (player,)):
+            if row["sku"] in PERMANENT_OFFERS:
+                owned.add(PERMANENT_OFFERS[row["sku"]])
+        return owned
+
+    def _account_data(self, db, player, installation):
+        balance, revision = db.execute("SELECT coalesce(sum(amount), 0), coalesce(max(seq), 0) FROM wallet_events WHERE player = ?",
+                                       (player,)).fetchone()
+        bonus = db.execute("""SELECT id FROM orders WHERE player = ? AND installation = ?
+                              AND received = 0 AND voided = 0 AND local_credit_bonus = 1""",
+                           (player, installation))
+        return {"wallet": {"crystals": max(0, balance), "debt": max(0, -balance), "revision": revision,
+                           "offers": sorted(self._owned(db, player, include_spends=balance >= 0))},
+                "credits_deliveries": [row["id"] for row in bonus]}
+
+    def wallet(self, player, installation):
         with closing(self._open()) as db:
-            rows = db.execute("SELECT * FROM orders WHERE player = ? AND installation = ? AND received = 0",
-                              (player, installation)).fetchall()
-            return [self._describe(row, installation) for row in rows]
+            db.execute("BEGIN")
+            return self._account_data(db, player, installation)
+
+    def spend(self, player, installation, request_id, offer):
+        if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id) or not isinstance(offer, str) or offer not in WALLET_OFFERS:
+            raise Rejected(400, "invalid_request")
+        price = WALLET_OFFERS[offer]
+        with closing(self._open()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute("SELECT offer FROM wallet_spends WHERE player = ? AND request_id = ?",
+                                  (player, request_id)).fetchone()
+            if existing and existing["offer"] != offer:
+                raise Rejected(409, "request_conflict")
+            current = self._account_data(db, player, installation)
+            owns_skin = offer == "skin_ion" and "starter" in current["wallet"]["offers"]
+            if existing or owns_skin or offer in self._owned(db, player):
+                return {"spent": False, **current}
+            if current["wallet"]["crystals"] < price:
+                raise Rejected(409, "insufficient_funds")
+            db.execute("INSERT INTO wallet_spends VALUES (?, ?, ?)", (player, request_id, offer))
+            self._event(db, f"spend:{self.account_id(player)}:{request_id}", player, -price, "spend", offer)
+            return {"spent": True, **self._account_data(db, player, installation)}
 
     def received(self, player, installation, delivery):
         if not isinstance(delivery, str) or not HEX_ID.fullmatch(delivery):
             raise Rejected(400, "invalid_request")
         with closing(self._open()) as db, db:
-            count = db.execute("UPDATE orders SET received = 1 WHERE id = ? AND player = ? AND installation = ?",
+            count = db.execute("""UPDATE orders SET received = 1 WHERE id = ? AND player = ? AND installation = ?
+                                  AND local_credit_bonus = 1 AND voided = 0""",
                                (delivery, player, installation)).rowcount
             if not count:
                 raise Rejected(404, "unknown_delivery")
 
+    def record_void(self, token):
+        delivery = hashlib.sha256(token.encode()).hexdigest()
+        with closing(self._open()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("INSERT OR IGNORE INTO voided_tokens VALUES (?)", (delivery,)).rowcount:
+                return
+            order = db.execute("SELECT player FROM orders WHERE id = ?", (delivery,)).fetchone()
+            if order is None:
+                return
+            credit = db.execute("SELECT amount FROM wallet_events WHERE event_id = ?", ("purchase:" + delivery,)).fetchone()
+            db.execute("UPDATE orders SET voided = 1 WHERE id = ?", (delivery,))
+            self._event(db, "refund:" + delivery, order["player"], -credit["amount"] if credit else 0, "refund", delivery)
+
+    def reconcile_voids(self, now_ms=None):
+        current = int(time.time() * 1000) if now_ms is None else now_ms
+        until = current - 60_000
+        with closing(self._open()) as db:
+            previous = db.execute("SELECT scanned_until FROM refund_cursor WHERE id = 1").fetchone()
+        earliest = current - 29 * DAY_MS
+        since = max(earliest, previous["scanned_until"] - DAY_MS) if previous else earliest
+        for token in self.play.voided(since, until):
+            self.record_void(token)
+        with closing(self._open()) as db, db:
+            db.execute("""INSERT INTO refund_cursor VALUES (1, ?)
+                          ON CONFLICT(id) DO UPDATE SET scanned_until = max(scanned_until, excluded.scanned_until)""", (until,))
+
     def finish_once(self):
         with closing(self._open()) as db:
-            rows = db.execute("SELECT * FROM orders WHERE finalized = 0 ORDER BY rowid").fetchall()
+            rows = db.execute("SELECT * FROM orders WHERE finalized = 0 AND voided = 0 ORDER BY rowid").fetchall()
         for row in rows:
             try:
                 purchase = self.play.purchase(row["token"])
@@ -194,16 +319,18 @@ def handler(ledger, sessions):
                 self._reply(503, {"ok": False, "error": "server_unavailable"})
 
         def _route(self, player, data):
-            if self.path == "/v1/play/session":
-                return {"obfuscated_account_id": ledger.account_id(player)}
+            if self.path == "/v2/play/session":
+                return {"obfuscated_account_id": ledger.account_id(player), "license_checkout": ledger.license_checkout}
             install = data.get("installation")
             if not isinstance(install, str) or not re.fullmatch(r"[0-9a-f]{32}", install):
                 raise Rejected(400, "invalid_installation")
-            if self.path == "/v1/play/verify":
+            if self.path == "/v2/play/verify":
                 return ledger.verify(player, install, data.get("sku"), data.get("token"))
-            if self.path == "/v1/play/outstanding":
-                return {"orders": ledger.outstanding(player, install)}
-            if self.path == "/v1/play/received":
+            if self.path == "/v2/play/wallet":
+                return ledger.wallet(player, install)
+            if self.path == "/v2/play/spend":
+                return ledger.spend(player, install, data.get("request_id"), data.get("offer"))
+            if self.path == "/v2/play/received":
                 ledger.received(player, install, data.get("delivery_id"))
                 return {}
             raise Rejected(404, "not_found")
@@ -235,7 +362,8 @@ def main():
     if mode not in ("test", "live"):
         raise SystemExit("Set STRIKE_PLAY_MODE to test or live.")
     credentials, _ = google.auth.default(scopes=SCOPES)
-    ledger = Ledger(os.environ["STRIKE_PLAY_DATABASE"], GooglePlay(credentials), account_key, mode == "test")
+    ledger = Ledger(os.environ["STRIKE_PLAY_DATABASE"], GooglePlay(credentials), account_key, mode == "test",
+                    os.environ.get("STRIKE_ENABLE_LICENSE_CHECKOUT") == "1")
     stop = threading.Event()
 
     def settle_play():
@@ -246,8 +374,18 @@ def main():
                 pass
             stop.wait(20)
 
+    def refund_worker():
+        while not stop.is_set():
+            try:
+                ledger.reconcile_voids()
+            except (sqlite3.Error, Rejected, KeyError, TypeError):
+                # Keep the same scan window on a failed API page.
+                print("Play refund reconciliation will retry", flush=True)
+            stop.wait(300)
+
     worker = threading.Thread(target=settle_play, daemon=True)
     worker.start()
+    threading.Thread(target=refund_worker, daemon=True).start()
     port = int(os.environ.get("STRIKE_PLAY_PORT", "8080"))
     with ThreadingHTTPServer(("127.0.0.1", port), handler(ledger, sessions)) as server:
         try:

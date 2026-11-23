@@ -31,19 +31,23 @@ static func redeem_play(draft: Dictionary, id: String, token: String) -> Diction
 	var offer: Dictionary = Offers.OFFERS.get(id, {})
 	if offer.get("kind") != "play" or not token.begins_with("gs-test-") or token.length() > 128:
 		return failure("invalid", "Potwierdzenie zakupu jest nieprawidłowe.")
-	return _redeem(draft, id, offer, "test:" + token.sha256_text(), false, "Zakup testowy rozliczony")
+	return _redeem_test(draft, id, offer, "test:" + token.sha256_text())
 
 
-static func redeem_verified_play(draft: Dictionary, id: String, delivery: String, restore: bool) -> Dictionary:
-	var offer: Dictionary = Offers.OFFERS.get(id, {})
-	if offer.get("kind") != "play" or delivery.length() != 64 or not delivery.is_valid_hex_number():
+static func redeem_starter_credits(draft: Dictionary, delivery: String) -> Dictionary:
+	if delivery.length() != 64 or not delivery.is_valid_hex_number():
 		return failure("invalid", "Identyfikator rozliczenia Google Play jest nieprawidłowy.")
-	if restore and offer.product_type != "non_consumable":
-		return failure("invalid", "Wypłacona waluta nie podlega ponownemu przyznaniu.")
-	return _redeem(draft, id, offer, "play:" + delivery, restore, "Przywrócono" if restore else "Zakup rozliczony")
+	var key := "play:" + delivery
+	if draft.commerce.receipts.has(key):
+		if draft.commerce.receipts[key] != "starter":
+			return failure("invalid", "Potwierdzenie należy do innego produktu.")
+		return {"ok": true, "changed": false, "state": "duplicate", "message": "Credits są w profilu."}
+	draft.commerce.receipts[key] = "starter"
+	draft.coins += int(Offers.OFFERS.starter.coins)
+	return success("Odebrano dodatek Credits z pakietu startowego.")
 
 
-static func _redeem(draft: Dictionary, id: String, offer: Dictionary, key: String, restore: bool, action: String) -> Dictionary:
+static func _redeem_test(draft: Dictionary, id: String, offer: Dictionary, key: String) -> Dictionary:
 	if draft.commerce.receipts.has(key):
 		if draft.commerce.receipts[key] != id:
 			return failure("invalid", "Potwierdzenie należy do innego produktu.")
@@ -53,16 +57,13 @@ static func _redeem(draft: Dictionary, id: String, offer: Dictionary, key: Strin
 		if id in draft.commerce.entitlements:
 			return {"ok": true, "changed": true, "state": "duplicate", "message": "Produkt jest już na koncie."}
 		draft.commerce.entitlements.append(id)
-	if restore:
-		_grant(draft, {"skin": offer.get("skin", "")})
-	else:
-		_grant(draft, offer)
-	return success("%s · %s" % [action, offer.title])
+	_grant(draft, offer)
+	return success("Zakup testowy rozliczony · %s" % offer.title)
 
 
-static func set_skin(draft: Dictionary, id: String, unlocked: Array) -> Dictionary:
+static func set_skin(draft: Dictionary, id: String, unlocked: Array, account_skins: Array) -> Dictionary:
 	var spec: Dictionary = Offers.SKINS.get(id, {})
-	if spec.is_empty() or id not in draft.commerce.skins:
+	if spec.is_empty() or (id not in draft.commerce.skins and id not in account_skins):
 		return failure("invalid", "Ta skórka nie jest jeszcze dostępna.")
 	if spec.ship not in unlocked:
 		return failure("locked", "Najpierw odblokuj ten statek w hangarze.")
@@ -73,13 +74,13 @@ static func set_skin(draft: Dictionary, id: String, unlocked: Array) -> Dictiona
 	return success("Założono · %s" % spec.title)
 
 
-static func claim_season(draft: Dictionary, id: String) -> Dictionary:
+static func claim_season(draft: Dictionary, id: String, account_pass: bool = false) -> Dictionary:
 	var reward: Dictionary = Offers.SEASON.get(id, {})
 	if reward.is_empty() or id in draft.commerce.season:
 		return failure("claimed", "Ta nagroda została już odebrana lub jest niedostępna.")
 	if draft.totals.flights < reward.goal:
 		return failure("locked", "Ukończ więcej lotów, aby odebrać nagrodę.")
-	if reward.get("pass", false) and "season_helion" not in draft.commerce.entitlements:
+	if reward.get("pass", false) and not account_pass and "season_helion" not in draft.commerce.entitlements:
 		return failure("locked", "Ten tor wymaga przepustki Helion.")
 	draft.commerce.season.append(id)
 	_grant(draft, reward)

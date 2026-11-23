@@ -34,6 +34,9 @@ var _message := ""
 var _highlight := ""
 var _highlight_value := ""
 var _loot := ""
+var _account_offers: Array[String] = []
+var _account_skins: Array[String] = []
+var _account_items: Array[String] = []
 
 
 func load_profile() -> void:
@@ -82,6 +85,20 @@ func load_profile() -> void:
 
 func snapshot() -> Dictionary:
 	var profile := _data.duplicate(true)
+	for offer: String in _account_offers:
+		if offer not in profile.commerce.entitlements:
+			profile.commerce.entitlements.append(offer)
+	for skin: String in _account_skins:
+		if skin not in profile.commerce.skins:
+			profile.commerce.skins.append(skin)
+	for item: String in _account_items:
+		if item not in profile.inventory:
+			profile.inventory.append(item)
+	for ship: String in profile.equipped:
+		profile.equipped[ship] = _available_equipment(ship)
+	for ship: String in profile.commerce.equipped_skins.keys():
+		if _active_skin(ship).is_empty():
+			profile.commerce.equipped_skins.erase(ship)
 	profile.unlocked_ships = _unlocked_ships(profile.wins)
 	profile.unlocked_sectors = _unlocked_sectors(profile.wins)
 	var loadout := sortie()
@@ -116,14 +133,40 @@ func save_block_reason() -> String:
 	return _message if _read_only else ""
 
 
+func set_account_offers(ids: Array[String]) -> void:
+	_account_offers = ids.duplicate()
+	_account_skins.clear()
+	_account_items.clear()
+	for id: String in _account_offers:
+		var offer: Dictionary = Offers.OFFERS[id]
+		if offer.has("skin") and offer.skin not in _account_skins:
+			_account_skins.append(offer.skin)
+		for item: String in offer.get("items", []):
+			if item not in _account_items:
+				_account_items.append(item)
+
+
+func _available_equipment(ship: String) -> Dictionary:
+	var equipment: Dictionary = _data.equipped.get(ship, {}).duplicate()
+	for slot: String in equipment.keys():
+		if equipment[slot] not in _data.inventory and equipment[slot] not in _account_items:
+			equipment.erase(slot)
+	return equipment
+
+
+func _active_skin(ship: String) -> String:
+	var skin: String = _data.commerce.equipped_skins.get(ship, "")
+	return skin if skin in _data.commerce.skins or skin in _account_skins else ""
+
+
 func sortie() -> Dictionary:
 	var ship_id: String = _data.ship_id
 	var sector_id: String = _data.sector_id
 	var sector: Dictionary = Catalog.SECTORS[sector_id]
 	return {
 		"ship_id": ship_id, "sector_id": sector_id, "sector_title": sector.title, "duration": sector.duration,
-		"stats": Catalog.build_stats(ship_id, _data.levels.get(ship_id, {}), _data.equipped.get(ship_id, {})),
-		"skin_id": _data.commerce.equipped_skins.get(ship_id, ""),
+		"stats": Catalog.build_stats(ship_id, _data.levels.get(ship_id, {}), _available_equipment(ship_id)),
+		"skin_id": _active_skin(ship_id),
 	}
 
 
@@ -164,7 +207,7 @@ func apply(action: String, value: String = "") -> Dictionary:
 		"equip", "unequip":
 			var equipment: Dictionary = candidate.equipped.get(ship, {})
 			if action == "equip":
-				if value not in candidate.inventory or not Catalog.ITEMS.has(value):
+				if (value not in candidate.inventory and value not in _account_items) or not Catalog.ITEMS.has(value):
 					return _fail("Tego modułu nie ma w magazynie.")
 				var item: Dictionary = Catalog.ITEMS[value]
 				equipment[item.slot] = value
@@ -269,23 +312,25 @@ func credit_mission(result: Dictionary, sector_id: String, flight_id: String = "
 
 
 func shop_buy(id: String) -> Dictionary:
+	if not _account_offers.is_empty() and Offers.owns_offer(snapshot().profile, id):
+		return Wallet.failure("owned", "Zawartość tej oferty jest już w kolekcji.")
 	return _wallet_transaction(Wallet.buy.bind(id))
 
 
 func shop_skin(id: String) -> Dictionary:
-	return _wallet_transaction(Wallet.set_skin.bind(id, _unlocked_ships(_data.wins)))
+	return _wallet_transaction(Wallet.set_skin.bind(id, _unlocked_ships(_data.wins), _account_skins))
 
 
 func claim_season(id: String) -> Dictionary:
-	return _wallet_transaction(Wallet.claim_season.bind(id))
+	return _wallet_transaction(Wallet.claim_season.bind(id, "season_helion" in _account_offers))
 
 
 func redeem_test_order(id: String, verified_token: String) -> Dictionary:
 	return _wallet_transaction(Wallet.redeem_play.bind(id, verified_token))
 
 
-func redeem_verified_order(id: String, delivery: String, restore: bool) -> Dictionary:
-	return _wallet_transaction(Wallet.redeem_verified_play.bind(id, delivery, restore))
+func redeem_starter_credits(delivery: String) -> Dictionary:
+	return _wallet_transaction(Wallet.redeem_starter_credits.bind(delivery))
 
 
 func ad_day() -> String:
@@ -497,7 +542,7 @@ func _normalize(source: Dictionary, version: int) -> Dictionary:
 			clean.levels[ship][track] = mini(MAX_LEVEL, _count(saved_levels.get(track, 0)))
 		for slot in Catalog.SLOTS:
 			var item: Variant = saved_equipment.get(slot)
-			if item in clean.inventory and Catalog.ITEMS[item].slot == slot:
+			if item is String and Catalog.ITEMS.has(item) and Catalog.ITEMS[item].slot == slot:
 				clean.equipped[ship][slot] = item
 	var totals := _dictionary(source.get("totals"))
 	var daily := _dictionary(source.get("daily"))
@@ -524,7 +569,7 @@ func _restore_wallet(profile: Dictionary, source: Dictionary) -> void:
 	var equipped := _dictionary(source.get("equipped_skins"))
 	for ship: String in Catalog.SHIPS:
 		var skin: Variant = equipped.get(ship)
-		if skin in wallet.skins and Offers.SKINS[skin].ship == ship:
+		if skin is String and Offers.SKINS.has(skin) and Offers.SKINS[skin].ship == ship:
 			wallet.equipped_skins[ship] = skin
 	var receipts := _dictionary(source.get("receipts"))
 	for key: Variant in receipts:

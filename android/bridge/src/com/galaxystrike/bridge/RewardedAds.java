@@ -11,6 +11,7 @@ import com.google.android.gms.ads.LoadAdError;
 import com.google.android.gms.ads.MobileAds;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
+import com.google.android.ump.ConsentDebugSettings;
 import com.google.android.ump.ConsentInformation;
 import com.google.android.ump.ConsentRequestParameters;
 import com.google.android.ump.UserMessagingPlatform;
@@ -35,11 +36,28 @@ final class RewardedAds {
     void updateConsent() {
         if (updatingConsent || consentChecked) return;
         updatingConsent = true;
-        ConsentRequestParameters params = new ConsentRequestParameters.Builder().build();
-        consent.requestConsentInfoUpdate(activity, params,
+        consent.requestConsentInfoUpdate(activity, consentParameters(),
             () -> UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity,
                 error -> consentComplete(error == null ? "" : "consent_error")),
             error -> consentComplete("consent_error"));
+    }
+
+    private ConsentRequestParameters consentParameters() {
+        ConsentRequestParameters.Builder request = new ConsentRequestParameters.Builder();
+        if (!GalaxyCommercePlugin.debuggable(activity)) return request.build();
+        String device = GalaxyCommercePlugin.metadata(activity, "com.galaxystrike.ump_debug_device");
+        String region = GalaxyCommercePlugin.metadata(activity, "com.galaxystrike.ump_debug_geography");
+        int geography = switch (region) {
+            case "eea" -> ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_EEA;
+            case "us" -> ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_REGULATED_US_STATE;
+            case "other" -> ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_OTHER;
+            default -> ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_DISABLED;
+        };
+        if (!device.isEmpty() && geography != ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_DISABLED) {
+            request.setConsentDebugSettings(new ConsentDebugSettings.Builder(activity)
+                .addTestDeviceHashedId(device).setDebugGeography(geography).build());
+        }
+        return request.build();
     }
 
     private void consentComplete(String status) {

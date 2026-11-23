@@ -209,6 +209,10 @@ func _ready() -> void:
 	_publish_telemetry()
 
 
+func active_enemy_count() -> int:
+	return _enemies.size()
+
+
 func set_suspended(suspended: bool) -> void:
 	_suspended = suspended
 	_clear_pointer()

@@ -6,6 +6,7 @@ signal effects_sample_requested
 signal confirmed(values: Vector3)
 signal cancelled
 signal privacy_requested
+signal diagnostics_changed(enabled: bool)
 
 const Palette := preload("res://ui/palette.gd")
 const Display := preload("res://assets/fonts/Oxanium.ttf")
@@ -14,6 +15,9 @@ const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
 var initial_mix := Vector3(0.90, 0.65, 0.80)
 var privacy_required := false
 var privacy_policy_url := ""
+var diagnostics_available := false
+var diagnostics_enabled := false
+var _diagnostics_button: Button
 var _values := Vector3.ZERO
 var _feedback: Label
 var _privacy_button: Button
@@ -61,6 +65,8 @@ func _ready() -> void:
 	_privacy_button.visible = privacy_required
 	if privacy_policy_url.begins_with("https://"):
 		_button(column, "PrivacyPolicyButton", "POLITYKA PRYWATNOŚCI", false, _open_privacy_policy)
+	if diagnostics_available:
+		_diagnostics_button = _button(column, "DiagnosticsButton", _diagnostics_label(), false, _toggle_diagnostics)
 
 	_feedback = _label("", 17, Palette.DANGER, Body)
 	_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -93,6 +99,16 @@ func _open_privacy_policy() -> void:
 	if OS.shell_open(privacy_policy_url) != OK:
 		_feedback.text = "Nie udało się otworzyć polityki prywatności."
 		_feedback.show()
+
+
+func _toggle_diagnostics() -> void:
+	diagnostics_enabled = not diagnostics_enabled
+	_diagnostics_button.text = _diagnostics_label()
+	diagnostics_changed.emit(diagnostics_enabled)
+
+
+func _diagnostics_label() -> String:
+	return "DIAGNOSTYKA · WŁ." if diagnostics_enabled else "DIAGNOSTYKA · WYŁ."
 
 
 func _channel(parent: VBoxContainer, id: String, title: String, axis: int) -> HSlider:

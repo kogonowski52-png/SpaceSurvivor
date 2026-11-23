@@ -1,6 +1,6 @@
-# Galaxy Strike · Android 0.6.1
+# Galaxy Strike · Android 0.7.0
 
-Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wersja aplikacji to **0.6.1**, kod wersji to **7**, a oba presety Androida ustawiają **target SDK 36** i **min SDK 24**. ABI obejmują arm64-v8a oraz x86_64. Zachowaj ten identyfikator w Google Play Console i AdMob.
+Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wersja aplikacji to **0.7.0**, kod wersji to **8**, a oba presety Androida ustawiają **target SDK 36** i **min SDK 24**. ABI obejmują arm64-v8a oraz x86_64. Zachowaj ten identyfikator w Google Play Console i AdMob. Publiczne płatności pozostają wyłączone.
 
 ## Zweryfikowane wersje
 
@@ -37,6 +37,7 @@ APK debug i podpis aplikacji z Google Play wykorzystują zwykle inne klucze. Je�
 - Domyślna kompilacja używa przykładowego ID aplikacji Google `ca-app-pub-3940256099942544~3347511713` oraz oficjalnej jednostki Rewarded `ca-app-pub-3940256099942544/5224354917`. Etykieta **Test AdMob** wskazuje prawdziwe żądanie reklamy testowej. Kompilacja debug zawsze używa testowej jednostki Rewarded.
 - We własnym AdMob utwórz aplikację Android o podanej nazwie pakietu i trzy jednostki Rewarded odpowiadające bonusowi dziennemu, podwojeniu wyniku i ożywieniu. Do kompilacji przypisz zmienne `GALAXY_ADMOB_APP_ID`, `GALAXY_ADMOB_REWARDED_BONUS`, `GALAXY_ADMOB_REWARDED_DOUBLE` i `GALAXY_ADMOB_REWARDED_REVIVE`. Podanie własnego App ID wymaga poprawnego ID każdej jednostki.
 - W **Privacy & messaging** opublikuj wymagane regionalnie komunikaty i powiąż je z aplikacją. Przy uruchomieniu gry UMP aktualizuje status i pokazuje wymagany formularz. SDK reklam pobiera reklamę dopiero po potwierdzeniu `canRequestAds()`. Przycisk **Opcje prywatności reklam** w ustawieniach otwiera formularz, jeśli status UMP to `REQUIRED`. AdMob służy też do dodania telefonów testowych do konta i sprawdzenia statusów zgód właściwych dla aplikacji.
+- Kompilacja debug przyjmuje `GALAXY_UMP_DEBUG_DEVICE` i `GALAXY_UMP_DEBUG_GEOGRAPHY` do testów na zarejestrowanym telefonie. Obsługiwane wartości regionu to `eea`, `us` i `other`. [Scenariusze Android](release/ANDROID_QA_0_7_PL.md)
 - Ustaw `GALAXY_PRIVACY_POLICY_URL` na publiczny adres HTTPS polityki. Gra pokazuje link w ustawieniach. Gradle wymaga tego adresu przy produkcyjnym Billing lub konfigurowaniu rzeczywistego App ID AdMob. [Projekty polityki i Data Safety](release/policy)
 - Sprawdź wszystkie trzy dobrowolne wejścia. Odbierz nagrodę po ukończeniu reklamy, zamknij kolejną reklamę przed nagrodą i sprawdź tryb bez sieci. Kod przyznaje nagrodę na podstawie sygnału SDK `onUserEarnedReward`, po zamknięciu widoku. Zamknięcie i błąd bez sygnału nagrody nie przyznają wypłaty. W Play Console uzupełnij deklarację reklam i Kartę bezpieczeństwa danych zgodnie z konfiguracją SDK. [Rewarded](https://developers.google.com/admob/android/rewarded) · [Reklamy testowe](https://developers.google.com/admob/android/test-ads) · [UMP](https://developers.google.com/admob/android/privacy)
 
@@ -52,28 +53,11 @@ Utwórz aktywne **produkty jednorazowe** z pojedynczą zwykłą opcją zakupu. W
 | `gs_crystals_900` | `consume` |
 | `gs_helion_pass_v1` | `acknowledge` |
 
-Dodaj konta w **License testing** i udostępnij podpisaną kompilację w kanale wewnętrznym. Na urządzeniu użyj konta testera i sprawdź, czy ekran Google Play pokazuje metodę testową. Użyj wyłącznie karty testowej przy weryfikacji. Sklep pyta o aktualne zakupy przy uruchomieniu i wznowieniu oraz po wybraniu **Przywróć zakupy Google Play**. Płatność oczekująca pozostaje bez wypłaty do potwierdzenia. Przetestuj powodzenie, anulowanie, kartę odrzuconą, kartę testową z opóźnioną płatnością oraz przywrócenie na tym samym koncie po restarcie. [Integracja Billing](https://developer.android.com/google/play/billing/integrate) · [Testowanie Google Play Billing](https://developer.android.com/google/play/billing/test)
+Dodaj konta w **License testing** i udostępnij podpisaną kompilację w kanale wewnętrznym. Ustaw `GALAXY_PLAY_MODE=test`, `GALAXY_PURCHASE_SERVER` na HTTPS wdrożonego portfela testowego i `GALAXY_ENABLE_LICENSE_CHECKOUT=1`. Oddzielny serwer musi zezwolić na test licencyjny. Na urządzeniu użyj konta testera i sprawdź, czy ekran Google Play pokazuje metodę testową. Użyj wyłącznie karty testowej przy weryfikacji. Sklep pyta o aktualne zakupy przy uruchomieniu i wznowieniu oraz po wybraniu **Przywróć zakupy Google Play**. Płatność oczekująca pozostaje bez wypłaty do potwierdzenia. Przetestuj powodzenie, anulowanie, kartę odrzuconą, kartę testową z opóźnioną płatnością oraz przywrócenie na tym samym koncie po restarcie. [Integracja Billing](https://developer.android.com/google/play/billing/integrate) · [Testowanie Google Play Billing](https://developer.android.com/google/play/billing/test)
 
-## Weryfikator zakupów
+## Weryfikator i portfel zakupów
 
-Kod referencyjny w `server/` weryfikuje tokeny przez `purchases.productsv2.getproductpurchasev2`. Porównuje pakiet, konto, SKU, typ środowiska, stan `PURCHASED` i jedną sztukę produktu. Kwoty ustala katalog gry. Baza SQLite utrwala pojedyncze rozliczenie powiązane z kontem i instalacją. Po zapisie osobny proces rozliczania wywołuje odpowiednią operację Google i ponawia ją po przejściowym błędzie. Gra zapisuje identyfikator dostawy i nagrodę w jednej rewizji profilu i potwierdza odbiór. Przywrócenie gotowej dostawy działa również, kiedy Play zdążył już zużyć token. Odzyskanie zakupów trwałych przyznaje uprawnienie bez ponownej wypłaty waluty. [API Android Publisher](https://github.com/googleapis/google-api-go-client/blob/main/androidpublisher/v3/androidpublisher-api.json) · [Weryfikator](server/play_server.py)
-
-1. Udostępnij serwis pod HTTPS za własnym reverse proxy. Utwórz konto usługi Google z dostępem do tej aplikacji i operacji zakupowych w Play Console. Skonfiguruj Application Default Credentials na serwerze. Używaj poświadczeń zarządzanych lub pliku poza repozytorium.
-2. Utwórz środowisko Python i zainstaluj `server/requirements.txt`. Przechowuj bazę oraz kopie w miejscu z ograniczonym dostępem. Ustaw poniższe zmienne w konfiguracji serwera, a następnie uruchom `python3 server/play_server.py`. Serwis słucha na adresie pętli zwrotnej i domyślnym porcie 8080.
-3. W kompilacji Androida ustaw publiczny adres `GALAXY_PURCHASE_SERVER` i `GALAXY_PLAY_MODE=test`. W aplikacji otwórz **Sklep → Oferta → Połącz konto zakupów**. Użyj unikalnego kodu konta wystawionego przez właściciela serwera. Gra zapisuje go w prywatnym obszarze Androida, a zakup wiąże z kontem gry przez `obfuscatedAccountId`. W kolejnym wspieranym wydaniu można wystawiać te sesje z istniejącego systemu logowania.
-4. Przed publikacją skonfiguruj osobny adres i bazę dla `STRIKE_PLAY_MODE=live` i zbuduj wydanie z `GALAXY_PLAY_MODE=live`. Debug wymusza środowisko testowe. Serwer testowy akceptuje wyłącznie zakupy licencyjne potwierdzone przez Google. Środowiska mają osobne profile i lokalne sesje. Zapis Androida ze starszych wersji symulatora pozostaje oddzielny.
-
-| Zmienna backendu | Wartość |
-| --- | --- |
-| `STRIKE_PLAY_DATABASE` | Ścieżka do trwałej, prywatnej bazy SQLite |
-| `STRIKE_ACCOUNT_BINDING_KEY` | Stały losowy klucz w postaci co najmniej 32 bajtów zapisanych szesnastkowo |
-| `STRIKE_SESSION_DIGESTS` | Mapa JSON skrótów SHA-256 kodów do stałych identyfikatorów kont |
-| `STRIKE_PLAY_MODE` | `test` lub `live` |
-| `STRIKE_PLAY_PORT` | Lokalny port za reverse proxy, domyślnie 8080 |
-
-Kod sesji może pochodzić z `secrets.token_urlsafe(32)`. Serwer przechowuje jego skrót, a klient otrzymuje indywidualny kod poza repozytorium. Rotując kod, zachowaj identyfikator konta i klucz powiązania, żeby wcześniejsze uprawnienia nadal odpowiadały kontu Google Play.
-
-Waluta gry jest przechowywana w lokalnym profilu po dostarczeniu. Po usunięciu danych na telefonie można odzyskać uprawnienia trwałe z Google Play. Wypłacone pakiety waluty nie są przyznawane ponownie. Przenoszenie salda między instalacjami i automatyczne odwoływanie zwróconych uprawnień wymagają wspólnego portfela po stronie serwera oraz obsługi powiadomień o zwrotach. [Bezpieczeństwo Google Play Billing](https://developer.android.com/google/play/billing/security)
+Portfel 0.7.0 zatwierdza płatne Crystals, wydatki i zwroty na serwerze. Saldo i przypisane do niego przedmioty odtwarza tożsamość pilota po ponownym połączeniu konta. Dotychczasowa waluta zdobyta w grze nadal korzysta z profilu lokalnego. Backend, wydawanie kodów testowych, utrzymanie bazy i odzyskiwanie salda opisuje przewodnik serwera. [Portfel i wdrożenie testowe](server/WALLET_0_7_PL.md)
 
 ## Podpisany AAB do dystrybucji
 
@@ -88,7 +72,7 @@ godot --headless --export-release "Android Play AAB" build/android/GalaxyStrike-
 unset GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD
 ```
 
-Zweryfikuj podpis poleceniami `jarsigner -verify` i `bundletool validate`. Porównaj odcisk certyfikatu z kluczem przesyłania w Play Console. Zwiększ `version/code` w obu presetach, jeśli Play Console widziało już numer **7**. [Instrukcja publikacji](release/PUBLICATION_PL.md)
+Zweryfikuj podpis poleceniami `jarsigner -verify` i `bundletool validate`. Porównaj odcisk certyfikatu z kluczem przesyłania w Play Console. Zwiększ `version/code` w obu presetach, jeśli Play Console widziało już numer **8**. [Instrukcja publikacji](release/PUBLICATION_PL.md)
 
 ## Testy projektu
 
@@ -97,4 +81,4 @@ python3 -m unittest discover -s server -v
 bash tests/run.sh --full-mission
 ```
 
-Test serwera korzysta z kontrolowanych odpowiedzi Publisher API. Test Godot weryfikuje obsługę dostawy, błędu zapisu, duplikatu i odtwarzania uprawnienia. Windows i pozostałe systemy stacjonarne nadal korzystają z jawnie oznaczonych symulatorów. Próby reklam, formularzy UMP i transakcji na telefonie wymagają urządzenia oraz konfiguracji kont Google.
+Test serwera korzysta z kontrolowanych odpowiedzi Publisher API. Test Godot obejmuje przywracanie salda, błędy zapisu i niedostępność sieci. Wersja stacjonarna korzysta z oznaczonego symulatora. Stan prób na telefonie i wyniki eksportu znajdują się w raporcie. [Raport 0.7.0](VERSION_0_7_0.md) · [Scenariusze Android](release/ANDROID_QA_0_7_PL.md)
