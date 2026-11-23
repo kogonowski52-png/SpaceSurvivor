@@ -23,6 +23,10 @@ const MAX_SHOTS := 184
 const MAX_FRIENDLY_SHOTS := 126
 const MINE_RADIUS := 54.0
 const MAX_ORBS := 96
+const LAST_HIT_AUDIO_INTERVAL := 0.085
+const SHIP_HIT_LIFETIME := 0.14
+const HULL_HIT_LIFETIME := 0.33
+const STAR_TILE_EXTENT := Vector2i(640, 1080)
 const CYAN := Color("#65e9ff")
 const VIOLET := Color("#b995ff")
 const WARM := Color("#ff725c")
@@ -102,9 +106,10 @@ var _recovered := 0
 var _orb_pool: Array[Orb] = []
 var _pending_cards: Array[Dictionary] = []
 var _textures: Array[Texture2D] = []
+var _enemy_frames: Array[Rect2] = []
 var _player_texture: Texture2D
 var _nebula_texture: Texture2D
-var _distant_stars := PackedVector2Array()
+var _distant_star_tile: Texture2D
 var _near_stars := PackedVector2Array()
 var _camera := Vector2.ZERO
 var _player_position := Vector2.ZERO
@@ -126,6 +131,10 @@ var _spawn_timer := 0.7
 var _engine_timer := 0.0
 var _report_timer := 0.0
 var _hit_cooldown := 0.0
+var _hull_flash := 0.0
+var _last_hit_audio := -LAST_HIT_AUDIO_INTERVAL
+var _last_boss_down := ""
+var _boss_down_until := 0.0
 var _firing_flash := 0.0
 var _suspended := false
 var _ended := false
@@ -153,6 +162,8 @@ func configure(sortie: Dictionary) -> void:
 func _ready() -> void:
 	_rng.randomize()
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+	_fx.prepare()
 	get_viewport().size_changed.connect(queue_redraw)
 	_player_texture = HULL.sprite if _ship_id == "peregrine" else _texture(_ship["sprite"])
 	if _player_texture == null:
@@ -162,8 +173,11 @@ func _ready() -> void:
 	for index in int(_stats["drone_rank"]):
 		_loadout.increment("drones")
 	_nebula_texture = _texture("res://assets/art/arena_nebula.jpg")
-	for path in SHIP_ART:
-		_textures.append(_texture(path))
+	for kind in SHIP_ART.size():
+		var texture := _texture(SHIP_ART[kind])
+		_textures.append(texture)
+		var size := _ship_size(texture, SHIP_BOUNDS[kind]) if texture != null else Vector2.ZERO
+		_enemy_frames.append(Rect2(-size * 0.5, size))
 	_seed_sky()
 	_spawn_enemy(EnemyKind.SCOUT, Vector2(-230.0, -250.0))
 	var starting_escort := EnemyKind.SCOUT
@@ -304,6 +318,7 @@ func _step_player(delta: float) -> void:
 		_player_heading = lerp_angle(_player_heading, _player_velocity.angle(), 1.0 - exp(-delta * 8.0))
 	_camera = _camera.lerp(_player_position, 1.0 - exp(-delta * 9.0))
 	_hit_cooldown = maxf(0.0, _hit_cooldown - delta)
+	_hull_flash = maxf(0.0, _hull_flash - delta)
 	_firing_flash = maxf(0.0, _firing_flash - delta)
 	_engine_timer -= delta
 	if _engine_timer <= 0.0:
@@ -648,9 +663,18 @@ func _area_damage(origin: Vector2, radius: float, damage: float) -> void:
 func _damage_enemy(index: int, damage: float, direction: Vector2) -> void:
 	var enemy := _enemies[index]
 	enemy.hp -= damage
-	enemy.hit_flash = 0.1
-	_fx.burst(enemy.position - direction * enemy.radius * 0.4, SHIP_TINTS[enemy.kind], 5, 145.0, direction)
+	var tint := SHIP_TINTS[enemy.kind]
+	var recent_impact := enemy.hit_flash > SHIP_HIT_LIFETIME * 0.48
+	var visible := _effect_visible(enemy.position, enemy.radius + 42.0)
 	if enemy.hp > 0.0:
+		if not recent_impact:
+			enemy.hit_flash = SHIP_HIT_LIFETIME
+			if visible:
+				var contact := enemy.position - direction * enemy.radius * 0.72
+				_fx.burst(contact, tint, 4, 178.0, -direction)
+				if _mission_time - _last_hit_audio >= LAST_HIT_AUDIO_INTERVAL:
+					_last_hit_audio = _mission_time
+					sound_requested.emit("hit")
 		return
 	_kills += 1
 	if enemy.kind == EnemyKind.ELITE:
@@ -662,15 +686,31 @@ func _damage_enemy(index: int, damage: float, direction: Vector2) -> void:
 		_director._boss_defeated = true
 		_recovered += 90
 	_spawn_orb(enemy.position, enemy.xp)
-	_fx.burst(enemy.position, SHIP_TINTS[enemy.kind], mini(37, 16 + enemy.kind * 4), 243.0)
-	_fx.ring(enemy.position, SHIP_TINTS[enemy.kind], 47.0 + enemy.kind * 14.0, 0.41)
+	var capital := enemy.kind >= EnemyKind.MINIBOSS
+	if capital:
+		_last_boss_down = "%s zniszczony" % _director.boss_name(enemy.kind)
+		_boss_down_until = _mission_time + 2.3
+		_fx.capital_break(_textures[enemy.kind], enemy.position, enemy.heading + PI * 0.5, _enemy_frames[enemy.kind], tint)
+	elif visible:
+		_fx.burst(enemy.position, tint, 10 + enemy.kind * 3, 233.0)
+		_fx.ring(enemy.position, tint, 47.0 + enemy.kind * 10.0, 0.36)
 	for shot in _shots:
 		if shot.target == enemy:
 			shot.target = null
 	_enemy_pool.append(enemy)
 	_enemies[index] = _enemies.back()
 	_enemies.pop_back()
-	sound_requested.emit("kill")
+	if capital:
+		sound_requested.emit("boss_break")
+		_publish_telemetry()
+	elif visible:
+		sound_requested.emit("kill")
+
+
+func _effect_visible(position: Vector2, margin: float) -> bool:
+	var half_extent := get_viewport_rect().size * 0.5 + Vector2.ONE * margin
+	var offset := (position - _camera).abs()
+	return offset.x < half_extent.x and offset.y < half_extent.y
 
 
 func _hurt_player(damage: float) -> void:
@@ -678,6 +718,7 @@ func _hurt_player(damage: float) -> void:
 		return
 	_hp = maxf(0.0, _hp - damage * float(_sector["enemy_damage_multiplier"]) * float(_stats["damage_taken_multiplier"]) * _loadout.damage_multiplier())
 	_hit_cooldown = 0.71
+	_hull_flash = HULL_HIT_LIFETIME
 	_fx.burst(_player_position, WARM, 19, 183.0)
 	_fx.ring(_player_position, WARM, 69.0, 0.41)
 	sound_requested.emit("hurt")
@@ -770,7 +811,8 @@ func _publish_telemetry() -> void:
 		"hp": _hp, "max_hp": _max_hp, "xp": _xp, "xp_goal": _xp_goal, "level": _level,
 		"seconds": _mission_time, "duration": _duration, "kills": _kills,
 		"wave": _director.wave + 1, "wave_name": _director.wave_name(),
-		"warning": warning, "boss_name": _director.boss_name(boss.kind) if boss else "",
+		"warning": warning, "success": _last_boss_down if _mission_time < _boss_down_until else "",
+		"boss_name": _director.boss_name(boss.kind) if boss else "",
 		"boss_hp": boss.hp if boss else 0.0, "boss_max_hp": boss.max_hp if boss else 0.0,
 		"sector_id": _sector_id, "sector_name": _sector["title"], "ship_id": _ship_id,
 	})
@@ -779,9 +821,20 @@ func _publish_telemetry() -> void:
 func _seed_sky() -> void:
 	var star_rng := RandomNumberGenerator.new()
 	star_rng.seed = int(_sector["star_seed"])
-	for index in 126:
-		_distant_stars.append(Vector2(star_rng.randf(), star_rng.randf()))
-	for index in 31:
+	var star_palette: Color = _sector["star_tint"]
+	var tile := Image.create_empty(STAR_TILE_EXTENT.x, STAR_TILE_EXTENT.y, false, Image.FORMAT_RGBA8)
+	for index in 148:
+		var point := Vector2(star_rng.randf(), star_rng.randf()) * Vector2(STAR_TILE_EXTENT)
+		var tint := star_palette.lerp(WHITE_HOT, float(index % 8) / 8.0)
+		var alpha := 0.22 + (index % 4) * 0.095
+		var x := clampi(floori(point.x), 0, STAR_TILE_EXTENT.x - 2)
+		var y := clampi(floori(point.y), 0, STAR_TILE_EXTENT.y - 2)
+		tile.set_pixel(x, y, Color(tint, alpha))
+		if index % 3 == 0:
+			tile.set_pixel(x + 1, y, Color(tint, alpha * 0.46))
+			tile.set_pixel(x, y + 1, Color(tint, alpha * 0.29))
+	_distant_star_tile = ImageTexture.create_from_image(tile)
+	for index in 25:
 		_near_stars.append(Vector2(star_rng.randf(), star_rng.randf()))
 
 
@@ -792,13 +845,16 @@ func _draw() -> void:
 	_draw_sky(viewport)
 	draw_rect(Rect2(ARENA.position + offset, ARENA.size), _sector["boundary"], false, 1.6)
 	_draw_orbs(offset, frame)
+	_fx.render_capital_breaks(self, offset, frame)
 	_fx.render(self, offset, frame.grow(20.0))
 	var near_view := frame.grow(140.0)
+	var escort_view := frame.grow(77.0)
 	for enemy in _enemies:
 		if enemy.kind >= EnemyKind.MINIBOSS:
 			_director.draw_telegraph(self, enemy, offset, _mission_time, enemy.kind == EnemyKind.BOSS)
 		var origin := enemy.position + offset
-		if near_view.has_point(origin):
+		var visible := near_view if enemy.kind >= EnemyKind.MINIBOSS else escort_view
+		if visible.has_point(origin):
 			_draw_enemy(enemy, origin)
 	for shot in _shots:
 		var origin := shot.position + offset
@@ -807,9 +863,8 @@ func _draw() -> void:
 	_arsenal.draw_weapons(self, offset, frame)
 	_draw_player(_player_position + offset)
 	_draw_steering()
-	if _hit_cooldown > 0.54:
-		var opacity := (_hit_cooldown - 0.54) * 0.81
-		draw_rect(frame, Color(WARM, opacity))
+	if _hull_flash > 0.0:
+		_draw_damage_edges(viewport)
 
 
 func _draw_sky(viewport: Vector2) -> void:
@@ -823,10 +878,8 @@ func _draw_sky(viewport: Vector2) -> void:
 		draw_texture_rect(_nebula_texture, Rect2(-slack - drift, covered), false, _sector["sky_tint"])
 	var star_tint: Color = _sector["star_tint"]
 	var space := viewport + Vector2(48.0, 48.0)
-	for index in _distant_stars.size():
-		var origin := _star_position(_distant_stars[index], space, 0.08)
-		var tint := star_tint.lerp(WHITE_HOT, float(index % 8) / 8.0)
-		draw_rect(Rect2(origin, Vector2.ONE * (1.0 + (index % 7) * 0.13)), Color(tint, 0.16 + (index % 4) * 0.09))
+	var sample := Rect2(_camera * 0.08, viewport)
+	draw_texture_rect_region(_distant_star_tile, Rect2(Vector2.ZERO, viewport), sample, Color.WHITE, false, false)
 	for index in _near_stars.size():
 		var origin := _star_position(_near_stars[index], space, 0.24)
 		var intensity := 0.44 + 0.18 * sin(index * 9.12 + _mission_time * 1.25)
@@ -863,17 +916,24 @@ func _draw_enemy(enemy: Enemy, origin: Vector2) -> void:
 	var texture := _textures[enemy.kind]
 	if texture == null:
 		return
-	var body_size := _ship_size(texture, SHIP_BOUNDS[enemy.kind])
+	var hull := _enemy_frames[enemy.kind]
+	var body_size := hull.size
 	var hot := SHIP_TINTS[enemy.kind]
 	draw_set_transform(origin, enemy.heading + PI * 0.5)
 	var engine_time := _mission_time + enemy.phase
-	_fx.engine(self, Vector2(0.0, body_size.y * 0.34), body_size.x * 0.072,
-		13.0 + enemy.kind * 4.5, hot, engine_time)
 	if enemy.kind >= EnemyKind.MINIBOSS:
 		for side in [-1, 1]:
-			_fx.engine(self, body_size * Vector2(side * 0.22, 0.32), 6.0, 32.0, hot, engine_time)
-	var tint := Color.WHITE.lerp(Color(2.0, 1.8, 1.55), enemy.hit_flash * 8.0)
-	draw_texture_rect(texture, Rect2(-body_size * 0.5, body_size), false, tint)
+			_fx.engine(self, body_size * Vector2(side * 0.16, 0.41), 6.0, 30.0, hot, engine_time)
+	else:
+		_fx.small_engine(self, Vector2(0.0, body_size.y * 0.43), body_size.x * 0.105,
+			14.0 + enemy.kind * 2.7, hot, engine_time)
+	var hit := enemy.hit_flash / SHIP_HIT_LIFETIME
+	var tint := Color(1.0 + hit * 0.25, 1.0 + hit * 0.16, 1.0 + hit * 0.09)
+	draw_texture_rect(texture, hull, false, tint)
+	if hit > 0.0:
+		var tip := body_size * Vector2(0.36, -0.29)
+		draw_line(Vector2(-tip.x, tip.y), Vector2(-tip.x * 0.70, tip.y - 5.0), Color(hot, hit * 0.74), 1.6, true)
+		draw_line(tip, Vector2(tip.x * 0.70, tip.y - 5.0), Color(hot, hit * 0.74), 1.6, true)
 	if enemy.kind == EnemyKind.LANCER and enemy.action_timer > 0.0 and enemy.action_timer < 0.29:
 		var muzzle := Vector2(0.0, -body_size.y * 0.47)
 		var brightness := 1.0 - enemy.action_timer / 0.29
@@ -890,8 +950,11 @@ func _draw_enemy(enemy: Enemy, origin: Vector2) -> void:
 
 func _draw_shot(shot: Shot, origin: Vector2) -> void:
 	if shot.kind == ShotKind.MINE:
-		var pulse := 0.63 + 0.29 * sin(shot.life * 15.0)
-		_director.draw_zone(self, origin, MINE_RADIUS, pulse)
+		var urgent := shot.life < 0.45
+		var pulse := 0.63 + 0.29 * sin(shot.life * (19.0 if urgent else 10.0))
+		_director.draw_zone(self, origin, MINE_RADIUS, pulse, urgent)
+		draw_line(origin - Vector2(6.0, 6.0), origin + Vector2(6.0, 6.0), Color(WARM, pulse), 1.9, true)
+		draw_line(origin - Vector2(-6.0, 6.0), origin + Vector2(-6.0, 6.0), Color(WARM, pulse), 1.9, true)
 		return
 	var forward := shot.velocity.normalized()
 	var tint := CYAN
@@ -925,7 +988,7 @@ func _draw_player(origin: Vector2) -> void:
 	var body_size := _ship_size(_player_texture, 93.0)
 	var boost := _player_velocity.length() / CRUISE_SPEED
 	var accent: Color = _ship["accent"]
-	var color := accent if _hit_cooldown < 0.54 else WARM
+	var color := accent.lerp(WARM, _hull_flash / HULL_HIT_LIFETIME)
 	draw_set_transform(origin, _player_heading + PI * 0.5)
 	var exhaust: Vector2 = _ship["exhaust"]
 	var nozzle := body_size * Vector2(-exhaust.x, exhaust.y)
@@ -933,8 +996,9 @@ func _draw_player(origin: Vector2) -> void:
 	_fx.engine(self, nozzle, 5.1, length, Color("#5099ff") if _ship_id == "peregrine" else accent.darkened(0.17), _mission_time)
 	_fx.engine(self, Vector2(-nozzle.x, nozzle.y), 5.1, length, accent, _mission_time)
 	var tint := Color.WHITE
-	if _hit_cooldown > 0.0:
-		tint = Color.WHITE.lerp(Color("#ff9580"), _hit_cooldown * 0.73)
+	if _hull_flash > 0.0:
+		var impact := _hull_flash / HULL_HIT_LIFETIME
+		tint = Color.WHITE.lerp(Color("#ffb197"), impact * 0.45)
 	draw_texture_rect(_player_texture, Rect2(-body_size * 0.5, body_size), false, tint)
 	if _firing_flash > 0.0:
 		for sign_x: int in [-1, 1]:
@@ -957,3 +1021,19 @@ func _draw_steering() -> void:
 	draw_line(center, _pointer_position, Color(CYAN, 0.28), 1.4, true)
 	draw_circle(_pointer_position, 12.0, Color(CYAN, 0.22), true, -1.0, true)
 	draw_arc(_pointer_position, 12.0, 0.0, TAU, 20, Color(CYAN, 0.56), 1.3, true)
+
+
+func _draw_damage_edges(viewport: Vector2) -> void:
+	var strength := _hull_flash / HULL_HIT_LIFETIME
+	var outer := Color(WARM, strength * 0.25)
+	var inner := Color(WARM, 0.0)
+	var colors := PackedColorArray([outer, outer, inner, inner])
+	var width := viewport.x
+	var height := viewport.y
+	var gradient := width * 0.13
+	draw_primitive(PackedVector2Array([
+		Vector2.ZERO, Vector2(0.0, height), Vector2(gradient, height), Vector2(gradient, 0.0)
+	]), colors, PackedVector2Array())
+	draw_primitive(PackedVector2Array([
+		Vector2(width, height), Vector2(width, 0.0), Vector2(width - gradient, 0.0), Vector2(width - gradient, height)
+	]), colors, PackedVector2Array())

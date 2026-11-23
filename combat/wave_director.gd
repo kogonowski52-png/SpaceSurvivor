@@ -12,6 +12,8 @@ const BOSS_NAMES := ["Aegis", "Leviathan"]
 const PATTERN_NAMES := ["Salwa pierścieniowa", "Cięcie osiowe", "Pola detonacji"]
 const DANGER := Color("#ff9674")
 const HOT := Color("#ffdac6")
+const BEAM_CHARGE := 1.40
+const ZONE_CHARGE := 1.18
 
 # Each wave mixes threat roles. Bosses have dedicated slots outside this table.
 const ENEMY_WEIGHTS := [
@@ -138,7 +140,8 @@ func boss_travel(arena, enemy, forward: Vector2, distance: float, delta: float) 
 		enemy.attack_origin = enemy.position
 		enemy.aim = forward.normalized() if distance > 1.0 else Vector2.UP
 		enemy.attack_target = arena._player_position
-		enemy.charge = 1.40 if enemy.pattern == 1 else 1.18
+		enemy.charge = BEAM_CHARGE if enemy.pattern == 1 else ZONE_CHARGE
+		arena.sound_requested.emit("boss_warning")
 		return Vector2.ZERO
 	# Stay in weapon range and traverse between attacks.
 	return forward * clampf((distance - 200.0) / 115.0, -0.4, 1.0)
@@ -196,7 +199,6 @@ func _zone_centers(enemy, final_boss: bool) -> Array[Vector2]:
 func draw_telegraph(canvas: Node2D, enemy, offset: Vector2, now: float, final_boss: bool) -> void:
 	var origin: Vector2 = enemy.attack_origin + offset
 	var aim: Vector2 = enemy.aim
-	var pulse := 0.68 + 0.24 * sin(now * 18.0)
 	if enemy.charge <= 0.0:
 		if enemy.afterglow > 0.0:
 			var alpha: float = enemy.afterglow / 0.24
@@ -204,6 +206,8 @@ func draw_telegraph(canvas: Node2D, enemy, offset: Vector2, now: float, final_bo
 			canvas.draw_line(origin, finish, Color(DANGER, alpha * 0.38), beam_width(final_boss) * 2.0, true)
 			canvas.draw_line(origin, finish, Color(HOT, alpha), 8.0 * alpha + 2.0, true)
 		return
+	var progress := 1.0 - float(enemy.charge) / (BEAM_CHARGE if enemy.pattern == 1 else ZONE_CHARGE)
+	var pulse := 0.55 + progress * 0.28 + 0.085 * sin(now * 16.0)
 	match enemy.pattern:
 		0:
 			var lanes := 18 if final_boss else 13
@@ -219,15 +223,18 @@ func draw_telegraph(canvas: Node2D, enemy, offset: Vector2, now: float, final_bo
 			canvas.draw_line(origin + edge, finish + edge, Color(HOT, pulse), 2.0, true)
 			canvas.draw_line(origin - edge, finish - edge, Color(HOT, pulse), 2.0, true)
 			canvas.draw_dashed_line(origin, finish, Color(DANGER, pulse), 1.8, 14.0)
+			var sweep := origin.lerp(finish, minf(0.97, 0.10 + progress * 0.86))
+			canvas.draw_line(sweep - edge, sweep + edge, Color(DANGER, pulse * 0.79), 1.8, true)
 		2:
 			for center in _zone_centers(enemy, final_boss):
-				draw_zone(canvas, center + offset, zone_radius(final_boss), pulse)
+				draw_zone(canvas, center + offset, zone_radius(final_boss), pulse, progress > 0.65)
 
 
-func draw_zone(canvas: Node2D, center: Vector2, radius: float, pulse: float) -> void:
-	canvas.draw_circle(center, radius, Color(DANGER, pulse * 0.12))
-	canvas.draw_arc(center, radius, 0.0, TAU, 46, Color(DANGER, pulse), 2.2, true)
-	canvas.draw_arc(center, radius * 0.82, 0.0, TAU, 36, Color(HOT, pulse * 0.42), 1.1, true)
-	for spoke in range(4):
-		var direction := Vector2.from_angle(PI * 0.5 * spoke)
-		canvas.draw_line(center + direction * (radius - 10.0), center + direction * (radius + 4.0), Color(HOT, pulse), 2.0, true)
+func draw_zone(canvas: Node2D, center: Vector2, radius: float, pulse: float, urgent := false) -> void:
+	canvas.draw_circle(center, radius, Color(DANGER, pulse * (0.18 if urgent else 0.10)))
+	canvas.draw_arc(center, radius, 0.0, TAU, 36, Color(DANGER, pulse), 2.6 if urgent else 1.8, true)
+	if urgent:
+		canvas.draw_arc(center, radius * 0.82, 0.0, TAU, 32, Color(HOT, pulse * 0.42), 1.1, true)
+	for index in 4:
+		var axis := Vector2.from_angle(index * PI * 0.5)
+		canvas.draw_line(center + axis * (radius - 7.0), center + axis * (radius + 3.0), Color(HOT, pulse * 0.82), 1.8, true)

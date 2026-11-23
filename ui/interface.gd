@@ -8,6 +8,7 @@ signal menu_requested
 signal upgrade_selected(id: String)
 signal hangar_requested
 signal hangar_action(action: String, value: String)
+signal settings_requested
 
 const Palette = preload("res://ui/palette.gd")
 const FlightGlyph = preload("res://ui/flight_glyph.gd")
@@ -41,6 +42,7 @@ var _wave_panel: PanelContainer
 var _wave_number: Label
 var _wave_name: Label
 var _warning: Label
+var _success: Label
 var _boss_panel: PanelContainer
 var _boss_name: Label
 var _boss_bar: ProgressBar
@@ -99,14 +101,19 @@ func show_menu(sortie: Dictionary = {}) -> void:
 	content.add_child(title)
 	title.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	_tag(title, "GALAXY STRIKE", Palette.TEXT, 61)
-	_label(title, "S P A C E   S U R V I V O R", _detail, 24, Palette.CYAN)
-	_spacer(title, 16)
-	var rule := ColorRect.new()
-	rule.color = Palette.CYAN
-	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rule.custom_minimum_size = Vector2(56, 2)
-	rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	title.add_child(rule)
+	var signature := _row(12)
+	title.add_child(signature)
+	var wordmark := _column(9)
+	wordmark.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wordmark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	signature.add_child(wordmark)
+	_label(wordmark, "S P A C E   S U R V I V O R", _detail, 23, Palette.CYAN)
+	_rail(wordmark, Palette.CYAN)
+	var settings := _button(signature, "SettingsButton", "", settings_requested.emit)
+	settings.custom_minimum_size.x = 56.0
+	settings.tooltip_text = "Ustawienia"
+	settings.accessibility_name = "Ustawienia"
+	_button_glyph(settings, "settings", Palette.TEXT)
 
 	var bottom := _column(12)
 	content.add_child(bottom)
@@ -115,7 +122,8 @@ func show_menu(sortie: Dictionary = {}) -> void:
 
 	var briefing := PanelContainer.new()
 	briefing.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var surface := Palette.panel(Color("#0d1928ed"), Color("#385062"), 12, 16.0)
+	var surface := Palette.plate(Color("#0d1928ed"), Color("#385062"), 14, 16.0)
+	surface.border_width_top = 2
 	briefing.add_theme_stylebox_override("panel", surface)
 	bottom.add_child(briefing)
 	var details := _column(4)
@@ -128,19 +136,25 @@ func show_menu(sortie: Dictionary = {}) -> void:
 	_tag(mission, "SEKTOR MISJI", Palette.MUTED, 13)
 	_tag(mission, str(sortie.get("sector_title", Mission.title)).to_upper(), Palette.TEXT, 31)
 	var duration := float(sortie.get("duration", Mission.duration_seconds))
-	var time := _tag(top, _clock(duration), Palette.CYAN, 24)
-	time.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_body(details, "Rozwiń uzbrojenie i odeprzyj kolejne fale floty.", 20)
+	var clock := _column(1)
+	clock.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(clock)
+	_tag(clock, "CZAS LOTU", Palette.MUTED, 13)
+	_tag(clock, _clock(duration), Palette.CYAN, 26)
+	_body(details, "Odeprzyj fale floty i zniszcz okręt dowodzenia.", 20)
 
 	var actions := _row(10)
 	bottom.add_child(actions)
 	var launch := _button(actions, "LaunchButton", "ROZPOCZNIJ MISJĘ", launch_requested.emit, true)
 	launch.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_button_glyph(launch, "arrow", Palette.NIGHT, true)
 	var hangar := _button(actions, "HangarButton", "HANGAR", hangar_requested.emit)
 	hangar.custom_minimum_size.x = 132.0
 
 	var controls := _body(bottom, "Przeciągnij palcem • WASD / strzałki na PC", 18)
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_reveal(title, 0.24)
+	_reveal(bottom, 0.28)
 
 
 func show_hangar(data: Dictionary, tab: String = "overview") -> void:
@@ -188,28 +202,32 @@ func update_hud(data: Dictionary) -> void:
 
 
 func show_pause() -> void:
-	var stack := _modal_stack("PauseOverlay")
-	_heading(stack, "MISJA WSTRZYMANA", "Wznów lot lub rozpocznij misję od nowa.", Palette.CYAN)
-	_spacer(stack, 4)
-	_button(stack, "ResumeButton", "WZNÓW LOT", resume_requested.emit, true)
-	_button(stack, "RestartButton", "RESTART MISJI", restart_requested.emit)
+	var stack := _modal_stack("PauseOverlay", Palette.CYAN, 0.63)
+	_heading(stack, "LOT WSTRZYMANY", "Czas misji zatrzymany. Wznów, gdy będziesz gotowy.", Palette.CYAN, "pause")
+	var resume := _button(stack, "ResumeButton", "WZNÓW LOT", resume_requested.emit, true)
+	_button_glyph(resume, "arrow", Palette.NIGHT, true)
+	var actions := _row(8)
+	stack.add_child(actions)
+	var restart := _button(actions, "RestartButton", "RESTART", restart_requested.emit)
+	restart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var settings := _button(actions, "PauseSettingsButton", "USTAWIENIA", settings_requested.emit)
+	settings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_button(stack, "MenuButton", "MENU GŁÓWNE", menu_requested.emit)
 
 
 func show_upgrades(cards: Array[Dictionary]) -> void:
-	var stack := _modal_stack("UpgradeOverlay")
+	var stack := _modal_stack("UpgradeOverlay", Palette.VIOLET, 0.69)
 	_tag(stack, "POZIOM %02d" % int(_telemetry.get("level", 2)), Palette.VIOLET, 16)
-	_heading(stack, "AWANS", "Wybierz jedno z trzech ulepszeń.", Palette.VIOLET)
-	_spacer(stack, 4)
+	_heading(stack, "AWANS", "Wybierz jedno ulepszenie na ten lot.", Palette.VIOLET, "pulse_crossfire")
 	for index in cards.size():
 		_add_upgrade(stack, cards[index], index)
 
 
 func show_result(data: Dictionary) -> void:
-	var stack := _modal_stack("ResultOverlay")
 	var won := bool(data.get("won", false))
 	var elapsed := float(data.get("seconds", 0.0))
-	var accent := Palette.CYAN if won else Palette.DANGER
+	var accent := Palette.SUCCESS if won else Palette.DANGER
+	var stack := _modal_stack("ResultOverlay", accent, 0.70)
 	_tag(stack, str(data.get("sector_title", Mission.title)).to_upper(), accent, 16)
 	var title := "MISJA UKOŃCZONA" if won else "STATEK UTRACONY"
 	var subtitle := "Przetrwano atak floty. Trasa jest otwarta." if won else "Sygnał statku zanikł przed końcem misji."
@@ -218,7 +236,7 @@ func show_result(data: Dictionary) -> void:
 	elif not won and elapsed >= float(data.get("duration", Mission.duration_seconds)):
 		title = "CZAS UPŁYNĄŁ"
 		subtitle = "Okręt dowodzenia pozostał w sektorze."
-	_heading(stack, title, subtitle, accent)
+	_heading(stack, title, subtitle, accent, "victory" if won else "defeat")
 	_spacer(stack, 5)
 	var stats := _row(8)
 	stack.add_child(stats)
@@ -226,6 +244,7 @@ func show_result(data: Dictionary) -> void:
 	_stat(stats, "ZESTRZELENIA", str(data.get("kills", 0)))
 	_stat(stats, "POZIOM", str(data.get("level", 1)))
 	if data.has("coins"):
+		_tag(stack, "NAGRODY Z LOTU", Palette.AMBER, 15)
 		var loot := _row(8)
 		loot.name = "RewardRow"
 		stack.add_child(loot)
@@ -246,41 +265,56 @@ func show_result(data: Dictionary) -> void:
 		var total := _tag(reward, "+%d" % int(data["reward"]), Palette.AMBER, 27)
 		total.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_spacer(stack, 5)
-	_button(stack, "ResultHangarButton", "WRÓĆ DO HANGARU", hangar_requested.emit, true)
-	_button(stack, "RestartButton", "LEĆ PONOWNIE", restart_requested.emit)
-	_button(stack, "MenuButton", "MENU GŁÓWNE", menu_requested.emit)
+	var hangar := _button(stack, "ResultHangarButton", "WRÓĆ DO HANGARU", hangar_requested.emit, true)
+	_button_glyph(hangar, "arrow", Palette.NIGHT, true)
+	var actions := _row(8)
+	stack.add_child(actions)
+	var restart := _button(actions, "RestartButton", "LEĆ PONOWNIE", restart_requested.emit)
+	restart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var exit := _button(actions, "MenuButton", "MENU GŁÓWNE", menu_requested.emit)
+	exit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 
 func _build_hud(content: Control) -> void:
 	var cockpit := _column(7)
 	content.add_child(cockpit)
 	cockpit.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	var header := _row(8)
+	var header := _row(6)
 	cockpit.add_child(header)
-	var health := _hud_cell(header)
-	(health.get_parent() as Control).size_flags_stretch_ratio = 1.45
+	var instruments := _hud_cell(header)
+	var channels := _row(13)
+	instruments.add_child(channels)
+	var health := _column(5)
+	channels.add_child(health)
+	health.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	health.size_flags_stretch_ratio = 1.9
 	health.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var health_top := _row(4)
 	health.add_child(health_top)
 	var health_label := _tag(health_top, "KADŁUB", Palette.MUTED, 13)
 	health_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_health_value = _tag(health_top, "100", Palette.TEXT, 15)
-	_health_bar = _bar(health, Palette.CYAN, 7)
+	_health_bar = _bar(health, Palette.CYAN, 6)
 
-	var timer := _hud_cell(header)
+	_instrument_divider(channels)
+	var timer := _column(1)
+	channels.add_child(timer)
+	timer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tag(timer, "POZOSTAŁO", Palette.MUTED, 13)
-	_timer = _tag(timer, _clock(Mission.duration_seconds), Palette.TEXT, 26)
+	_timer = _tag(timer, _clock(Mission.duration_seconds), Palette.TEXT, 25)
 
-	var kills := _hud_cell(header)
+	_instrument_divider(channels)
+	var kills := _column(1)
+	channels.add_child(kills)
+	kills.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tag(kills, "ZESTRZEL.", Palette.MUTED, 13)
-	_kills = _tag(kills, "00", Palette.TEXT, 26)
+	_kills = _tag(kills, "00", Palette.TEXT, 25)
 
 	_pause_button = _button(header, "PauseButton", "", pause_requested.emit)
 	_pause_button.custom_minimum_size = Vector2(57, 62)
 	_pause_button.tooltip_text = "Wstrzymaj misję"
 	_pause_button.accessibility_name = "Wstrzymaj misję"
-	var pause_mark := _glyph(_pause_button, "pause", Palette.TEXT, Vector2(32, 32))
-	pause_mark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_button_glyph(_pause_button, "pause", Palette.TEXT)
 	_build_encounters(cockpit)
 
 	var footer := _hud_cell(content)
@@ -309,15 +343,20 @@ func _build_encounters(cockpit: Container) -> void:
 	_warning = _body(wave, "", 19, Palette.AMBER)
 	_warning.name = "BossWarning"
 	_warning.hide()
+	_success = _body(wave, "", 19, Palette.SUCCESS)
+	_success.name = "BossSuccess"
+	_success.hide()
 
 	var boss := _hud_cell(cockpit)
 	_boss_panel = boss.get_parent() as PanelContainer
 	_boss_panel.name = "BossHUD"
-	var shell := Palette.panel(Color("#221622f2"), Color("#794863"), 9, 9.0)
+	var shell := Palette.plate(Color("#221622f2"), Color("#9d596e"), 8, 9.0)
+	shell.border_width_left = 3
 	_boss_panel.add_theme_stylebox_override("panel", shell)
 	_boss_panel.hide()
 	var boss_top := _row(9)
 	boss.add_child(boss_top)
+	_glyph(boss_top, "target", Palette.DANGER, Vector2(20, 18))
 	_boss_name = _tag(boss_top, "", Palette.DANGER, 16)
 	_boss_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_boss_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -334,6 +373,7 @@ func _render_hud() -> void:
 	var fill := _health_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	var low_hp := hp <= max_hp * 0.25
 	fill.bg_color = Palette.DANGER if low_hp else Palette.CYAN
+	fill.border_color = fill.bg_color
 	_health_value.add_theme_color_override("font_color", Palette.DANGER if low_hp else Palette.TEXT)
 
 	var total := float(_telemetry.get("duration", Mission.duration_seconds))
@@ -354,9 +394,11 @@ func _render_encounters() -> void:
 	var wave := int(_telemetry.get("wave", 0))
 	_warning.text = str(_telemetry.get("warning", ""))
 	_warning.visible = not _warning.text.is_empty()
+	_success.text = str(_telemetry.get("success", ""))
+	_success.visible = not _warning.visible and not _success.text.is_empty()
 	_wave_number.text = "FALA %02d" % wave if wave > 0 else "OSTRZEŻENIE"
 	_wave_name.text = str(_telemetry.get("wave_name", ""))
-	_wave_panel.visible = wave > 0 or _warning.visible
+	_wave_panel.visible = wave > 0 or _warning.visible or _success.visible
 	var boss_hp := float(_telemetry.get("boss_hp", 0))
 	var boss_max_hp := float(_telemetry.get("boss_max_hp", 0))
 	_boss_panel.visible = boss_max_hp > 0.0 and boss_hp > 0.0
@@ -376,6 +418,8 @@ func _animate_hud_changes(previous: Dictionary) -> void:
 		_xp_pulse = _pulse(_xp_bar, _xp_pulse)
 	var changed_wave := int(_telemetry.get("wave", 0)) != int(previous.get("wave", 0))
 	var changed_warning := _warning.visible and _warning.text != str(previous.get("warning", ""))
+	if _success.visible and _success.text != str(previous.get("success", "")):
+		_reveal(_success, 0.18)
 	if _wave_panel.visible and (changed_wave or changed_warning):
 		_wave_pulse = _pulse(_warning if changed_warning else _wave_number, _wave_pulse)
 
@@ -403,8 +447,8 @@ func _add_upgrade(parent: Container, card: Dictionary, index: int) -> void:
 	upgrade.custom_minimum_size.y = 110
 	upgrade.accessibility_name = str(card.get("title", "Ulepszenie"))
 	upgrade.accessibility_description = "%s. %s" % [metadata, card.get("description", "")]
-	var normal := Palette.panel(Palette.SURFACE.lerp(accent, 0.055), Palette.OUTLINE)
-	normal.border_width_left = 3
+	var normal := Palette.plate(Palette.GRAPHITE.lerp(accent, 0.095), Palette.OUTLINE, 13)
+	normal.border_width_left = 4
 	normal.border_color = accent.darkened(0.48)
 	var hover := normal.duplicate() as StyleBoxFlat
 	hover.bg_color = Color("#21364b")
@@ -424,10 +468,10 @@ func _add_upgrade(parent: Container, card: Dictionary, index: int) -> void:
 	row.offset_bottom = -10
 	var badge := PanelContainer.new()
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.custom_minimum_size = Vector2(49, 49)
+	badge.custom_minimum_size = Vector2(56, 56)
 	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	badge.add_theme_stylebox_override(
-		"panel", Palette.panel(accent.darkened(0.89), accent.darkened(0.62), 8))
+		"panel", Palette.plate(accent.darkened(0.89), accent.darkened(0.62), 10))
 	row.add_child(badge)
 	_glyph(badge, str(card.get("icon", id)), accent, Vector2(45, 45))
 
@@ -447,13 +491,13 @@ func _add_upgrade(parent: Container, card: Dictionary, index: int) -> void:
 	)
 
 
-func _modal_stack(page_name: String) -> VBoxContainer:
+func _modal_stack(page_name: String, accent: Color, shade: float) -> VBoxContainer:
 	_clear_modal()
 	if is_instance_valid(_pause_button):
 		_pause_button.focus_mode = Control.FOCUS_NONE
 	_modal = _page(page_name)
 	var scrim := ColorRect.new()
-	scrim.color = Color("#03070ed4")
+	scrim.color = Color(Palette.NIGHT, shade)
 	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_modal.add_child(scrim)
 	scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -465,27 +509,36 @@ func _modal_stack(page_name: String) -> VBoxContainer:
 	var shell := PanelContainer.new()
 	shell.custom_minimum_size.x = safe.size.x
 	shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shell.add_theme_stylebox_override("panel", Palette.panel(Color("#0b1523f6"), Palette.OUTLINE, 15, 21.0))
+	var blush := Palette.GRAPHITE.lerp(accent, 0.055)
+	var surface := Palette.plate(Color(blush, 0.98), Palette.OUTLINE.lerp(accent, 0.34), 20, 21.0)
+	surface.border_width_top = 2
+	surface.shadow_color = Color("#00000060")
+	surface.shadow_size = 16
+	surface.shadow_offset = Vector2(0, 9)
+	shell.add_theme_stylebox_override("panel", surface)
 	centering.add_child(shell)
 	safe.resized.connect(func() -> void: shell.custom_minimum_size.x = safe.size.x)
 	var stack := _column(11)
 	shell.add_child(stack)
-	_modal.modulate.a = 0.0
-	create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS).tween_property(_modal, "modulate:a", 1.0, 0.18)
+	_reveal(shell, 0.20)
 	return stack
 
 
-func _heading(parent: Container, title: String, body: String, accent: Color) -> void:
-	var copy := _column(3)
+func _heading(parent: Container, title: String, body: String, accent: Color, glyph_id: String) -> void:
+	var copy := _column(5)
 	parent.add_child(copy)
-	var rule := ColorRect.new()
-	rule.color = accent
-	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rule.custom_minimum_size = Vector2(33, 2)
-	rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	copy.add_child(rule)
-	_spacer(copy, 4)
-	_tag(copy, title, Palette.TEXT, 38)
+	_rail(copy, accent)
+	var header := _row(10)
+	copy.add_child(header)
+	var nameplate := _tag(header, title, Palette.TEXT, 37)
+	nameplate.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nameplate.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sigil := PanelContainer.new()
+	sigil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sigil.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sigil.add_theme_stylebox_override("panel", Palette.plate(accent.darkened(0.84), accent.darkened(0.50), 8))
+	header.add_child(sigil)
+	_glyph(sigil, glyph_id, accent, Vector2(42, 40))
 	_body(copy, body, 21)
 
 
@@ -500,7 +553,7 @@ func _hud_cell(parent: Control) -> VBoxContainer:
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.add_theme_stylebox_override(
-		"panel", Palette.panel(Color("#101d2aee"), Palette.OUTLINE, 9, 9.0))
+		"panel", Palette.plate(Color("#0d1b29f1"), Palette.OUTLINE, 8, 9.0))
 	parent.add_child(panel)
 	var content := _column(4)
 	panel.add_child(content)
@@ -512,8 +565,8 @@ func _bar(parent: Container, accent: Color, height: float) -> ProgressBar:
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.show_percentage = false
 	bar.custom_minimum_size.y = height
-	bar.add_theme_stylebox_override("background", Palette.panel(Palette.TRACK, Palette.TRACK, 3))
-	bar.add_theme_stylebox_override("fill", Palette.panel(accent, accent, 3))
+	bar.add_theme_stylebox_override("background", Palette.plate(Palette.TRACK, Palette.TRACK, 3))
+	bar.add_theme_stylebox_override("fill", Palette.plate(accent, accent, 3))
 	parent.add_child(bar)
 	return bar
 
@@ -532,15 +585,15 @@ func _button(
 	button.add_theme_font_override("font", _headline)
 	button.add_theme_font_size_override("font_size", 19)
 
-	var base := Palette.CYAN if primary else Palette.SURFACE
+	var base := Palette.CYAN if primary else Palette.STEEL
 	var border := Palette.CYAN.lightened(0.24) if primary else Palette.OUTLINE
 	var text_color := Palette.NIGHT if primary else Palette.TEXT
 	var hovered := Palette.CYAN.lightened(0.20) if primary else Color("#21364b")
 	var pressed := Palette.CYAN.darkened(0.13) if primary else Color("#29425a")
-	button.add_theme_stylebox_override("normal", Palette.panel(base, border, 9, 9.0))
-	button.add_theme_stylebox_override("hover", Palette.panel(hovered, border, 9, 9.0))
-	button.add_theme_stylebox_override("pressed", Palette.panel(pressed, border, 9, 9.0))
-	var focus := Palette.panel(Color.TRANSPARENT, Palette.CYAN.lightened(0.5), 9)
+	button.add_theme_stylebox_override("normal", Palette.plate(base, border, 10, 9.0))
+	button.add_theme_stylebox_override("hover", Palette.plate(hovered, border, 10, 9.0))
+	button.add_theme_stylebox_override("pressed", Palette.plate(pressed, border, 10, 9.0))
+	var focus := Palette.plate(Color.TRANSPARENT, Palette.CYAN.lightened(0.5), 10)
 	focus.draw_center = false
 	focus.set_border_width_all(2)
 	button.add_theme_stylebox_override("focus", focus)
@@ -559,6 +612,47 @@ func _glyph(parent: Control, id: String, color: Color, minimum: Vector2) -> Cont
 	glyph.custom_minimum_size = minimum
 	parent.add_child(glyph)
 	return glyph
+
+
+func _button_glyph(button: Button, id: String, color: Color, right_edge: bool = false) -> void:
+	var mark := _glyph(button, id, color, Vector2(32, 32))
+	if right_edge:
+		mark.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+		mark.offset_left = -48
+		mark.offset_right = -16
+		mark.offset_top = -16
+		mark.offset_bottom = 16
+	else:
+		mark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+
+func _rail(parent: Container, accent: Color) -> void:
+	var frame := _row(5)
+	parent.add_child(frame)
+	_rail_piece(frame, Vector2(37, 2), accent)
+	_rail_piece(frame, Vector2(9, 2), accent.darkened(0.45))
+	var end := _rail_piece(frame, Vector2(24, 1), Palette.OUTLINE)
+	end.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+
+func _rail_piece(parent: Container, minimum: Vector2, tint: Color) -> ColorRect:
+	var paint := ColorRect.new()
+	paint.color = tint
+	paint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	paint.custom_minimum_size = minimum
+	parent.add_child(paint)
+	return paint
+
+
+func _instrument_divider(parent: Container) -> void:
+	_rail_piece(parent, Vector2(1, 0), Palette.OUTLINE)
+
+
+func _reveal(control: Control, duration: float) -> void:
+	control.modulate.a = 0.72
+	control.create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS).tween_property(
+		control, "modulate:a", 1.0, duration
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
 func _safe_content(parent: Control, margin_x: float = PAGE_MARGIN, margin_y: float = 32.0) -> Control:

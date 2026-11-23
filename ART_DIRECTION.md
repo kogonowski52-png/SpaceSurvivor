@@ -53,7 +53,7 @@ Oxanium nadaje tytułom i licznikom geometryczny rysunek. Barlow Medium ułatwia
 
 ## Zasoby i pochodzenie
 
-- Ilustracja menu i mgławica areny powstały dla tego projektu z użyciem generatora obrazów. Kolor i układ kadrów dobrano do czytelności interfejsu. Obie tekstury zapisano w JPEG.
+- Ilustracja menu i mgławica areny powstały dla tego projektu z użyciem generatora obrazów. Ilustrację menu w etapie 4 opracowano na podstawie ortogonalnego sprite’a Peregrine i kompozycji pierwszej ilustracji. Obie tekstury zapisano w JPEG.
 - Cztery statki wygenerowano razem w spójnej stylistyce. Każdy ma oddzielną teksturę PNG z oczyszczoną alfą i dłuższą krawędzią 320 px. Metalowe poszycie, otwory wentylacyjne, kabiny i światła są częścią tekstur. Jasność i ruch napędu oraz trafień są rysowane w Godot.
 - Sześć jednostek etapu 2 powstało w dwóch nowych arkuszach dla tej gry. Z arkuszy wycięto pojedyncze tekstury PNG, oczyszczono krawędzie alfy i dobrano rozdzielczości do różnych rozmiarów jednostek na arenie. Statki wykorzystują filtrowanie z mipmapami, które ogranicza migotanie detali w ruchu.
 - Trzy statki gracza i wnętrze hangaru etapu 3 powstały w osobnych materiałach dla tej gry. Tekstury statków mają oczyszczone krawędzie alfy. Hangar pokazuje Peregrine z pierwotnej grafiki w większej rozdzielczości niż tekstura bojowa, która pozostała bez zmian.
@@ -63,7 +63,7 @@ Oxanium nadaje tytułom i licznikom geometryczny rysunek. Barlow Medium ułatwia
 
 Próba statków złożonych na tle areny w skali 46–80 px pokazała wyraźne różnice między jasnym myśliwcem, klinem Scouta, skrzydłami Lancera i blokową sylwetką Bastionu. Drobne nity i malowanie są najlepiej widoczne w ilustracji menu oraz w większych jednostkach. Niewielki Scout zachowuje czytelny kontur i kolor. Na zrzutach uruchomionej gry w 720×1280 główna akcja menu odcina się od ilustracji, podczas walki widać smugi napędu, pociski i punkty XP, a przyciemnienie areny pozostawia czytelne opisy trzech kart awansu.
 
-Ilustracja myśliwca i jego sprite dzielą kolorystykę, podwójny napęd i charakterystyczną kabinę. Różni je dokładna geometria poszycia. Jeśli kolejne etapy wprowadzą hangar, wspólny model źródłowy pozwoli ujednolicić ujęcia z menu, walki i podglądu statku. Ocena czytelności pod kątem jasności i kontrastu na fizycznych telefonach pozostaje otwarta.
+Pierwsza ilustracja myśliwca dzieliła ze sprite’em podwójny napęd i kabinę, ale różniła się geometrią poszycia. Ocena czytelności pod kątem jasności i kontrastu na fizycznych telefonach pozostaje otwarta.
 
 ## Ocena etapu 2
 
@@ -72,3 +72,9 @@ W próbie kompozycji na docelowym tle oba okręty dowodzenia łatwo rozróżnić
 ## Ocena etapu 3
 
 W próbie kompozycji cztery statki dają rozróżnialne sylwetki zarówno w hangarze, jak i w skali 93 px na tle areny. Jasny Peregrine ma bardziej kanciasty obrys niż Aurora. Szerokie płyty Aegisa kontrastują z wąską igłą Spectera. Ciemne warianty korzystają z krawędziowego światła i jasnej kabiny, które pozostają widoczne między efektami napędu. Widok hangaru używa ujęcia statku z góry, zgodnie z widokiem w walce.
+
+## Ocena etapu 4
+
+Ilustracja menu pokazuje Peregrine pod kątem, z odtworzonymi białymi grodziami rufowymi, granatowymi skrzydłami, wydłużoną cyjanową kabiną i parą prostokątnych wylotów. Zachowano ciemny obszar na tekst przy górnej i dolnej krawędzi oraz łuk atmosfery za sylwetką. Menu używa ilustracji referencyjnej. W hangarze i walce kształt pochodzi z tej samej grafiki ortogonalnej, w dwóch rozdzielczościach.
+
+W nowych wariantach referencyjnych Razora i Widma lepiej widać stalowe krawędzie skrzydeł oraz podział grafitowych i bordowych płyt. W statycznym porównaniu na tle areny przy wysokościach 58 i 99 px obie jednostki zachowują wcześniejsze sylwetki i charakterystyczne kolory kabin. Tekstury zachowały kanał alfa i mipmapy. Ocena materiałów i sygnałów poprzedzających ataki w ruchu przy niskiej jasności wymaga próby na fizycznym telefonie.

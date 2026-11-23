@@ -14,6 +14,9 @@ const RARITY_COLORS := {
 	"common": Palette.MUTED, "rare": Palette.CYAN,
 	"epic": Palette.VIOLET, "legendary": Color("#ffd17e"),
 }
+const SECTOR_VIEW := {
+	"peryhelium": Vector2(0.08, 0.58), "umbra": Vector2(0.46, 0.27), "zenith": Vector2(0.88, 0.72),
+}
 const SURFACE := Color("#0e1929f5")
 
 var _display := FontVariation.new()
@@ -51,13 +54,13 @@ func _inventory(parent: VBoxContainer, profile: Dictionary, action: Callable) ->
 		var spec: Dictionary = Catalog.ITEMS.get(id, {})
 		var filled := not spec.is_empty()
 		var accent := _rarity(str(spec.get("rarity", "common")))
-		_icon(line, slot, accent if filled else Palette.OUTLINE.lightened(0.28), id, 44,
+		_icon(line, slot, accent if filled else Palette.OUTLINE.lightened(0.28), id, 37,
 			spec.get("rarity") == "legendary")
 		var text := _stack(line, 0, true)
-		_copy(text, str(SLOT_NAMES[slot]).to_upper(), 13, Palette.MUTED, true)
-		_copy(text, str(spec.get("title", "Moduł fabryczny")), 19, Palette.TEXT if filled else Palette.MUTED)
+		_copy(text, str(SLOT_NAMES[slot]).to_upper(), 12, accent if filled else Palette.MUTED, true)
+		_copy(text, str(spec.get("title", "Moduł fabryczny")), 18, Palette.TEXT if filled else Palette.MUTED)
 		if filled:
-			_button(line, "Unequip_" + slot, "ZDEJMIJ", action.bind("unequip", slot), Palette.TEXT, 102)
+			_button(line, "Unequip_" + slot, "ZDEJMIJ", action.bind("unequip", slot), Palette.MUTED, 91, 14)
 
 	var owned: Array = profile.get("inventory", [])
 	var header := _row(parent, 8)
@@ -65,27 +68,46 @@ func _inventory(parent: VBoxContainer, profile: Dictionary, action: Callable) ->
 	_copy(header, "%d / %d MODUŁÓW" % [owned.size(), Catalog.ITEMS.size()], 14, Palette.CYAN, true)
 	if owned.is_empty():
 		_copy(_panel(parent), "Zdobywaj skrzynie w misjach i odbieraj je w zakładce Nagrody.", 19, Palette.MUTED)
+	var ordered: Array[String] = []
 	for value in owned:
 		var id := str(value)
-		if not Catalog.ITEMS.has(id):
-			continue
+		if Catalog.ITEMS.has(id):
+			ordered.append(id)
+	ordered.sort_custom(_inventory_order)
+	for id in ordered:
 		var spec: Dictionary = Catalog.ITEMS[id]
 		var equipped_here := str(equipped.get(spec["slot"], "")) == id
 		_item_card(parent, id, spec, equipped_here, action)
 
 
+func _inventory_order(left: String, right: String) -> bool:
+	var a: Dictionary = Catalog.ITEMS[left]
+	var b: Dictionary = Catalog.ITEMS[right]
+	var tier_a := Catalog.RARITIES.find(a["rarity"])
+	var tier_b := Catalog.RARITIES.find(b["rarity"])
+	if tier_a != tier_b:
+		return tier_a > tier_b
+	var slot_a := Catalog.SLOTS.find(a["slot"])
+	var slot_b := Catalog.SLOTS.find(b["slot"])
+	return slot_a < slot_b if slot_a != slot_b else left < right
+
+
 func _item_card(parent: Container, id: String, spec: Dictionary, equipped: bool, action: Callable) -> void:
 	var rarity := str(spec["rarity"])
 	var accent := _rarity(rarity)
-	var panel := _panel(parent, accent, equipped or rarity == "legendary")
+	var rare := rarity != "common"
+	var panel := _panel(parent, accent, rare)
 	var line := _row(panel, 11)
 	_icon(line, spec["slot"], accent, id, 57, rarity == "legendary")
 	var text := _stack(line, 2, true)
-	_copy(text, "%s  /  %s" % [rarity.to_upper(), str(SLOT_NAMES.get(spec["slot"], "")).to_upper()], 13, accent, true)
+	var labels := _row(text, 6)
+	_copy(labels, str(SLOT_NAMES[spec["slot"]]).to_upper(), 12, Palette.MUTED, true)
+	_chip(labels, rarity.to_upper(), accent)
 	_copy(text, spec["title"], 22, Palette.TEXT, true)
 	_copy(text, spec["description"], 18, Palette.MUTED)
 	if equipped:
-		_copy(text, "NA POKŁADZIE", 13, Palette.CYAN, true)
+		var status := _row(text, 5)
+		_chip(status, "NA POKŁADZIE", Palette.CYAN)
 	else:
 		var controls := _row(panel, 6)
 		var spacer := Control.new()
@@ -107,49 +129,67 @@ func _sectors(parent: VBoxContainer, profile: Dictionary, action: Callable) -> v
 		var body := _panel(parent, accent, active)
 		var row := _row(body, 11)
 		var image := TextureRect.new()
-		image.texture = SPACE
+		var sector_crop := AtlasTexture.new()
+		sector_crop.atlas = SPACE
+		var image_size := SPACE.get_size()
+		var crop_size := Vector2(image_size.x * 0.53, image_size.y * 0.47)
+		sector_crop.region = Rect2((image_size - crop_size) * SECTOR_VIEW.get(id, Vector2(0.5, 0.5)), crop_size)
+		image.texture = sector_crop
 		image.modulate = spec.get("sky_tint", Color.WHITE)
 		image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		image.custom_minimum_size = Vector2(115, 103)
+		image.custom_minimum_size = Vector2(116, 111)
 		image.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(image)
 		var text := _stack(row, 3, true)
-		_copy(text, str(spec["title"]).to_upper(), 27, Palette.TEXT, true)
+		_copy(text, str(spec["title"]), 27, Palette.TEXT, true)
 		_copy(text, str(spec["description"]), 18, Palette.MUTED)
 		var duration := floori(float(spec["duration"]) / 60.0)
-		_copy(text, "%d MIN   /   NAGRODY ×%.2f" % [duration, float(spec.get("reward_multiplier", 1.0))], 13, accent, true)
+		var metadata := _row(text, 5)
+		_chip(metadata, "%d MIN" % duration, Palette.MUTED)
+		_chip(metadata, "NAGRODY ×%.2f" % float(spec.get("reward_multiplier", 1.0)), accent)
 		if active:
-			_copy(body, "WYBRANY SEKTOR", 15, Palette.CYAN, true)
+			_chip(_row(body, 5), "AKTYWNY KURS", accent)
 		elif accessible:
 			_button(body, "SelectSector_" + id, "WYBIERZ SEKTOR", action.bind("select_sector", id), accent)
 		else:
 			var need := int(spec.get("unlock_wins", 0))
-			_copy(body, "ZABLOKOWANY   /   %d / %d ZWYCIĘSTW" % [mini(wins, need), need], 15, Palette.MUTED, true)
+			var locked := _row(body, 6)
+			_chip(locked, "ZABLOKOWANY", Palette.MUTED)
+			_copy(locked, "%d / %d ZWYCIĘSTW" % [mini(wins, need), need], 14, Palette.MUTED, true)
 
 
 func _rewards(parent: VBoxContainer, data: Dictionary, profile: Dictionary, action: Callable) -> void:
 	var count := int(profile.get("crates", 0))
 	var box := _panel(parent, Palette.AMBER, count > 0)
 	var line := _row(box, 12)
-	_icon(line, "crate", Palette.AMBER, "", 68)
+	_icon(line, "crate", Palette.AMBER, "", 72)
 	var copy := _stack(line, 2, true)
 	_copy(copy, "Skrzynie odzysku", 24, Palette.TEXT, true)
-	_copy(copy, "DO OTWARCIA   /   %02d" % count, 14, Palette.AMBER, true)
-	_copy(copy, "Skrzynie zdobywasz podczas misji.", 17, Palette.MUTED)
+	_chip(_row(copy, 5), "DO OTWARCIA  %02d" % count, Palette.AMBER if count else Palette.MUTED)
+	if count == 0:
+		_copy(copy, "Skrzynie zdobywasz w misjach i kalendarzu lotów.", 17, Palette.MUTED)
 	if count > 0:
-		_button(box, "OpenCrate", "OTWÓRZ SKRZYNIĘ", action.bind("open_crate", ""), Palette.AMBER)
+		_button(box, "OpenCrate", "OTWÓRZ SKRZYNIĘ", action.bind("open_crate", ""), Palette.AMBER, 0, 16, true)
 	var loot_id := str(data.get("loot", ""))
 	if Catalog.ITEMS.has(loot_id):
 		var loot: Dictionary = Catalog.ITEMS[loot_id]
 		var tier := str(loot["rarity"])
 		var color := _rarity(tier)
 		var reveal := _panel(parent, color, true)
-		_copy(reveal, "ZDOBYTY MODUŁ  /  %s" % tier.to_upper(), 14, color, true)
-		_copy(reveal, str(loot["title"]), 23, Palette.TEXT, true)
-		var animation := reveal.create_tween()
-		reveal.modulate.a = 0.35
-		animation.tween_property(reveal, "modulate:a", 1.0, 0.32)
+		reveal.get_parent().name = "CrateResult"
+		var detail := _row(reveal, 10)
+		var badge := _icon(detail, loot["slot"], color, loot_id, 66, tier == "legendary")
+		var details := _stack(detail, 3, true)
+		var marks := _row(details, 7)
+		_copy(marks, "Z ODZYSKU", 13, Palette.MUTED, true)
+		_chip(marks, tier.to_upper(), color)
+		_copy(details, str(loot["title"]), 23, Palette.TEXT, true)
+		_copy(details, str(loot["description"]), 17, Palette.MUTED)
+		if data.get("highlight", "") == "open_crate":
+			var animation := reveal.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			animation.tween_property(reveal, "modulate:a", 1.0, 0.33).from(0.2)
+			animation.parallel().tween_property(badge, "scale", Vector2.ONE, 0.42).from(Vector2(0.78, 0.78))
 
 	_calendar(parent, data.get("calendar", []), action)
 	_copy(parent, "Codzienne zadania", 26, Palette.TEXT, true)
@@ -183,9 +223,9 @@ func _calendar(parent: VBoxContainer, days: Array, action: Callable) -> void:
 			prize += "\n+%d skrz." % int(day["crates"])
 		_copy(tile, prize, 15, Palette.TEXT)
 		if available and not claimed:
-			_button(tile, "ClaimCalendar_" + id, "ODBIERZ", action.bind("claim_calendar", id), Palette.CYAN, 0, 14)
+			_button(tile, "ClaimCalendar_" + id, "ODBIERZ", action.bind("claim_calendar", id), Palette.CYAN, 0, 14, true)
 		elif claimed:
-			_copy(tile, "ODEBRANO", 12, Palette.CYAN, true)
+			_chip(_row(tile, 0), "ODEBRANO", Palette.CYAN)
 
 
 func _milestone(parent: Container, task: Dictionary, command: String, button_prefix: String, action: Callable) -> void:
@@ -211,13 +251,26 @@ func _milestone(parent: Container, task: Dictionary, command: String, button_pre
 	_copy(footer, "+%d MONET   ·   +%d MAT." % [int(task.get("coins", 0)), int(task.get("materials", 0))],
 		13, Palette.AMBER, true, true)
 	if ready and not claimed:
-		_button(footer, button_prefix + id, "ODBIERZ", action.bind(command, id), Palette.CYAN, 108)
+		_button(footer, button_prefix + id, "ODBIERZ", action.bind(command, id), Palette.CYAN, 108, 16, true)
 	elif claimed:
-		_copy(footer, "ODEBRANO", 13, Palette.CYAN, true)
+		_chip(footer, "ODEBRANO", Palette.CYAN)
 
 
 func _rarity(id: String) -> Color:
 	return RARITY_COLORS.get(id, Palette.MUTED)
+
+
+func _chip(parent: Container, title: String, accent: Color) -> void:
+	var badge := PanelContainer.new()
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var style := Palette.panel(SURFACE.lerp(accent, 0.13), accent.darkened(0.57), 4, 5)
+	style.content_margin_top = 2
+	style.content_margin_bottom = 2
+	badge.add_theme_stylebox_override("panel", style)
+	parent.add_child(badge)
+	var text := _copy(badge, title, 12, accent.lightened(0.13), true)
+	text.autowrap_mode = TextServer.AUTOWRAP_OFF
 
 
 func _panel(parent: Container, accent: Color = Palette.OUTLINE, emphasis := false, inset := 13) -> VBoxContainer:
@@ -225,7 +278,7 @@ func _panel(parent: Container, accent: Color = Palette.OUTLINE, emphasis := fals
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var border := accent.darkened(0.51) if emphasis else Palette.OUTLINE
 	var fill := SURFACE.lerp(accent, 0.08) if emphasis else SURFACE
-	var style := Palette.panel(fill, border, 11, inset)
+	var style := Palette.plate(fill, border, 10, inset)
 	if emphasis:
 		style.set_border_width(SIDE_LEFT, 3)
 	panel.add_theme_stylebox_override("panel", style)
@@ -268,7 +321,7 @@ func _copy(parent: Container, text: String, size: int, color: Color, heading := 
 	return label
 
 
-func _icon(parent: Container, slot: String, accent: Color, item: String, extent: int, legendary := false) -> void:
+func _icon(parent: Container, slot: String, accent: Color, item: String, extent: int, legendary := false) -> Control:
 	var icon := Glyph.new()
 	icon.kind = slot
 	icon.tint = accent
@@ -277,9 +330,10 @@ func _icon(parent: Container, slot: String, accent: Color, item: String, extent:
 	icon.custom_minimum_size = Vector2(extent, extent)
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	parent.add_child(icon)
+	return icon
 
 
-func _button(parent: Container, name: String, label: String, task: Callable, accent: Color, width := 0, size := 16) -> Button:
+func _button(parent: Container, name: String, label: String, task: Callable, accent: Color, width := 0, size := 16, primary := false) -> Button:
 	var button := Button.new()
 	button.name = name
 	button.text = label
@@ -288,13 +342,13 @@ func _button(parent: Container, name: String, label: String, task: Callable, acc
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.add_theme_font_override("font", _display)
 	button.add_theme_font_size_override("font_size", size)
-	button.add_theme_color_override("font_color", accent)
-	button.add_theme_color_override("font_hover_color", Palette.TEXT)
+	button.add_theme_color_override("font_color", Palette.NIGHT if primary else accent)
+	button.add_theme_color_override("font_hover_color", Palette.NIGHT if primary else Palette.TEXT)
 	button.add_theme_color_override("font_pressed_color", Palette.NIGHT)
-	button.add_theme_stylebox_override("normal", Palette.panel(SURFACE.lerp(accent, 0.10), accent.darkened(0.46), 7, 5))
-	button.add_theme_stylebox_override("hover", Palette.panel(SURFACE.lerp(accent, 0.22), accent, 7, 5))
-	button.add_theme_stylebox_override("pressed", Palette.panel(accent, accent, 7, 5))
-	var focus := Palette.panel(Color.TRANSPARENT, accent, 7)
+	button.add_theme_stylebox_override("normal", Palette.plate(accent if primary else SURFACE.lerp(accent, 0.10), accent.darkened(0.46), 7, 5))
+	button.add_theme_stylebox_override("hover", Palette.plate(accent.lightened(0.13) if primary else SURFACE.lerp(accent, 0.22), accent, 7, 5))
+	button.add_theme_stylebox_override("pressed", Palette.plate(accent, accent, 7, 5))
+	var focus := Palette.plate(Color.TRANSPARENT, accent, 7)
 	focus.draw_center = false
 	focus.set_border_width_all(2)
 	button.add_theme_stylebox_override("focus", focus)

@@ -11,6 +11,30 @@ func _ready() -> void:
 func _draw() -> void:
 	var center := size * 0.5
 	match glyph:
+		"settings":
+			var teeth := PackedVector2Array()
+			for index in 32:
+				var radius := 12.5 if index % 4 < 2 else 9.6
+				teeth.append(center + Vector2.from_angle(TAU * index / 32.0) * radius)
+			teeth.append(teeth[0])
+			draw_polyline(teeth, tint, 1.6, true)
+			draw_arc(center, 4.1, 0.0, TAU, 19, tint, 1.6, true)
+		"target":
+			_path(center, [Vector2(-7, -3), Vector2(-7, -7), Vector2(-3, -7)])
+			_path(center, [Vector2(3, -7), Vector2(7, -7), Vector2(7, -3)])
+			_path(center, [Vector2(7, 3), Vector2(7, 7), Vector2(3, 7)])
+			_path(center, [Vector2(-3, 7), Vector2(-7, 7), Vector2(-7, 3)])
+			draw_circle(center, 1.7, tint, true, -1.0, true)
+		"victory":
+			_path(center, [Vector2(-11, -4), Vector2(0, -12), Vector2(11, -4),
+				Vector2(11, 5), Vector2(0, 13), Vector2(-11, 5), Vector2(-11, -4)])
+			_path(center, [Vector2(-5, 1), Vector2(-1, 5), Vector2(6, -3)])
+		"defeat":
+			_path(center, [Vector2(-12, 4), Vector2(-12, -5), Vector2(-3, -11)])
+			_path(center, [Vector2(4, -11), Vector2(12, -5), Vector2(12, 5),
+				Vector2(4, 11)])
+			_path(center, [Vector2(1, -8), Vector2(-4, -1), Vector2(3, 2),
+				Vector2(-1, 10), Vector2(-9, 8)])
 		"pause":
 			_line(center, Vector2(-4, -7), Vector2(-4, 7), 2.7)
 			_line(center, Vector2(4, -7), Vector2(4, 7), 2.7)

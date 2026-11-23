@@ -13,4 +13,5 @@ export XDG_DATA_HOME="$qa_temp/data"
 "$godot_bin" --headless --path "$project" --script res://tests/arsenal.gd
 "$godot_bin" --headless --path "$project" --fixed-fps 60 --script res://tests/encounters.gd
 "$godot_bin" --headless --path "$project" --fixed-fps 60 --script res://tests/progression.gd
+"$godot_bin" --headless --path "$project" --fixed-fps 60 --script res://tests/audit_settings.gd
 "$godot_bin" --headless --path "$project" --fixed-fps 60 --script res://tests/smoke.gd -- "$@"
