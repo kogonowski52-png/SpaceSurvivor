@@ -2,7 +2,9 @@ extends RefCounted
 ## Durable, local progress. Each transaction writes the other slot before it becomes visible.
 
 const Catalog := preload("res://data/progression_catalog.gd")
-const VERSION := 2
+const Offers := preload("res://data/store/commerce_catalog.gd")
+const Wallet := preload("res://data/store/wallet.gd")
+const VERSION := 3
 const MAX_LEVEL := 5
 const TRACKS := ["hull", "drive", "output"]
 const STARTER_ITEMS := ["pulse_coil", "titanium_plate", "trim_nozzle", "flux_cell", "escort_bay"]
@@ -98,14 +100,14 @@ func snapshot() -> Dictionary:
 	for index in CALENDAR.size():
 		var reward: Array = CALENDAR[index]
 		calendar.append({"id": str(index + 1), "coins": reward[0], "materials": reward[1],
-			"crates": reward[2], "claimed": index < profile.calendar_day,
+			"crates": reward[2], "crystals": 15 if index == 6 else 0, "claimed": index < profile.calendar_day,
 			"available": not _read_only and index == profile.calendar_day and today > profile.calendar_date})
 	return {
 		"profile": profile, "stats": loadout.stats, "upgrade_prices": prices, "message": _message,
 		"highlight": _highlight, "highlight_value": _highlight_value, "loot": _loot,
 		"daily": _objectives(DAILY, daily, daily.claimed),
 		"achievements": _objectives(ACHIEVEMENTS, lifetime, profile.achievements),
-		"calendar": calendar,
+		"calendar": calendar, "read_only": _read_only,
 	}
 
 
@@ -116,6 +118,7 @@ func sortie() -> Dictionary:
 	return {
 		"ship_id": ship_id, "sector_id": sector_id, "sector_title": sector.title, "duration": sector.duration,
 		"stats": Catalog.build_stats(ship_id, _data.levels.get(ship_id, {}), _data.equipped.get(ship_id, {})),
+		"skin_id": _data.commerce.equipped_skins.get(ship_id, ""),
 	}
 
 
@@ -200,6 +203,8 @@ func apply(action: String, value: String = "") -> Dictionary:
 			candidate.coins += gift[0]
 			candidate.materials += gift[1]
 			candidate.crates += gift[2]
+			if index == 6:
+				candidate.crystals += 15
 			candidate.calendar_day += 1
 			candidate.calendar_date = today
 			message = "Nagroda kalendarza · dzień %d" % (index + 1)
@@ -215,10 +220,12 @@ func apply(action: String, value: String = "") -> Dictionary:
 	return {"ok": true, "message": message, "loot": loot}
 
 
-func credit_mission(result: Dictionary, sector_id: String) -> Dictionary:
+func credit_mission(result: Dictionary, sector_id: String, flight_id: String = "") -> Dictionary:
 	if _read_only:
 		_message = "Zaktualizuj grę, aby zapisać wynik."
-		return {"ok": false, "coins": 0, "materials": 0, "crates": 0}
+		return _unsaved_result()
+	if flight_id.length() > 64 or (not flight_id.is_empty() and _data.commerce.receipts.has("flight:" + flight_id)):
+		return _unsaved_result()
 	var candidate := _data.duplicate(true)
 	var seconds := clampf(float(result.get("seconds", 0)), 0, 1800)
 	var kills := _count(result.get("kills", 0))
@@ -228,10 +235,17 @@ func credit_mission(result: Dictionary, sector_id: String) -> Dictionary:
 	var coins := floori(gross * float(sector.reward_multiplier))
 	var materials := _count(result.get("reward", 0))
 	var crates := (2 if sector_id == "zenith" else 1) if won else int(seconds >= 180.0)
+	var crystals := 4 if won else 0
+	var payout := {"ok": true, "coins": coins, "materials": materials, "crates": crates, "crystals": crystals}
 	candidate.coins += coins
 	candidate.materials += materials
 	candidate.crates += crates
+	candidate.crystals += crystals
 	candidate.wins += int(won)
+	if not flight_id.is_empty():
+		candidate.commerce.receipts["flight:" + flight_id] = "flight"
+		candidate.commerce.flight = {"id": flight_id, "doubled": false, "coins": coins,
+			"materials": materials, "crates": crates, "crystals": crystals}
 	var today := _today(candidate)
 	var daily := _daily_state(candidate, today)
 	for counters in [candidate.totals, daily]:
@@ -242,12 +256,58 @@ func credit_mission(result: Dictionary, sector_id: String) -> Dictionary:
 	candidate.last_day = today
 	if not _commit(candidate):
 		_message = "Zapis wyniku nie powiódł się."
-		return {"ok": false, "coins": 0, "materials": 0, "crates": 0}
-	_message = "Lot zapisany · +%d monet, +%d materiałów" % [coins, materials]
+		return _unsaved_result()
+	_message = "Lot zapisany · +%d Credits, +%d materiałów" % [coins, materials]
 	_highlight = ""
 	_highlight_value = ""
 	_loot = ""
-	return {"ok": true, "coins": coins, "materials": materials, "crates": crates}
+	return payout
+
+
+func shop_buy(id: String) -> Dictionary:
+	return _wallet_transaction(Wallet.buy.bind(id))
+
+
+func shop_skin(id: String) -> Dictionary:
+	return _wallet_transaction(Wallet.set_skin.bind(id, _unlocked_ships(_data.wins)))
+
+
+func claim_season(id: String) -> Dictionary:
+	return _wallet_transaction(Wallet.claim_season.bind(id))
+
+
+func redeem_test_order(id: String, verified_token: String) -> Dictionary:
+	return _wallet_transaction(Wallet.redeem_play.bind(id, verified_token))
+
+
+func ad_day() -> String:
+	return _today(_data)
+
+
+func ad_eligible(placement: String, scope: String) -> bool:
+	return not _read_only and scope.length() <= 64 and Wallet.ad_eligible(_data, placement, scope, ad_day())
+
+
+func claim_rewarded_ad(placement: String, scope: String) -> Dictionary:
+	if not ad_eligible(placement, scope):
+		return Wallet.failure("claimed", "Nagroda jest już odebrana lub wygasła.")
+	return _wallet_transaction(Wallet.claim_ad.bind(placement, scope, ad_day()))
+
+
+func _wallet_transaction(operation: Callable) -> Dictionary:
+	if _read_only:
+		return Wallet.failure("save", "Zaktualizuj grę przed zmianą zapisu.")
+	var draft := _data.duplicate(true)
+	var outcome: Dictionary = operation.call(draft)
+	if outcome.get("changed", false):
+		draft.last_day = _today(draft)
+		if not _commit(draft):
+			return Wallet.failure("save", "Zapis nie powiódł się. Saldo i nagrody pozostają bez zmian.")
+	return outcome
+
+
+func _unsaved_result() -> Dictionary:
+	return {"ok": false, "coins": 0, "materials": 0, "crates": 0, "crystals": 0}
 
 
 func _roll_crate(candidate: Dictionary) -> String:
@@ -326,7 +386,8 @@ func _daily_state(profile: Dictionary, today: String) -> Dictionary:
 
 func _fresh() -> Dictionary:
 	return {
-		"coins": 420, "materials": 90, "wins": 0, "crates": 1, "crate_streak": 0,
+		"coins": 420, "crystals": 0, "materials": 90, "wins": 0, "crates": 1, "crate_streak": 0,
+		"commerce": Wallet.empty_state(),
 		"ship_id": "peregrine", "sector_id": "peryhelium", "inventory": STARTER_ITEMS.duplicate(),
 		"levels": {}, "equipped": {}, "totals": {"flights": 0, "kills": 0, "wins": 0},
 		"achievements": [], "daily": {}, "calendar_day": 0, "calendar_date": "", "last_day": "",
@@ -395,7 +456,7 @@ func _read_slot(path: String) -> Dictionary:
 
 func _normalize(source: Dictionary, version: int) -> Dictionary:
 	var clean := _fresh()
-	for key in ["coins", "materials", "wins", "crates", "crate_streak", "calendar_day"]:
+	for key in ["coins", "crystals", "materials", "wins", "crates", "crate_streak", "calendar_day"]:
 		clean[key] = _count(source.get(key, clean[key]))
 	if version == 1 and not source.has("materials"):
 		clean.materials += _count(source.get("salvage", 0))
@@ -432,7 +493,39 @@ func _normalize(source: Dictionary, version: int) -> Dictionary:
 		clean.totals[key] = _count(totals.get(key, 0))
 		clean.daily[key] = _count(daily.get(key, 0))
 	clean.achievements = _string_list(source.get("achievements"))
+	_restore_wallet(clean, _dictionary(source.get("commerce")))
 	return clean
+
+
+func _restore_wallet(profile: Dictionary, source: Dictionary) -> void:
+	var wallet: Dictionary = profile.commerce
+	for id in _string_list(source.get("entitlements")):
+		if Offers.OFFERS.has(id):
+			wallet.entitlements.append(id)
+	for id in _string_list(source.get("skins")):
+		if Offers.SKINS.has(id):
+			wallet.skins.append(id)
+	for id in _string_list(source.get("season")):
+		if Offers.SEASON.has(id):
+			wallet.season.append(id)
+	var equipped := _dictionary(source.get("equipped_skins"))
+	for ship: String in Catalog.SHIPS:
+		var skin: Variant = equipped.get(ship)
+		if skin in wallet.skins and Offers.SKINS[skin].ship == ship:
+			wallet.equipped_skins[ship] = skin
+	var receipts := _dictionary(source.get("receipts"))
+	for key: Variant in receipts:
+		if key is String and key.length() <= 72 and receipts[key] is String:
+			var value: String = receipts[key]
+			if (key.begins_with("test:") and Offers.OFFERS.has(value)) or value in ["revive", "flight"]:
+				wallet.receipts[key] = value
+	wallet.bonus_day = _date(source.get("bonus_day"))
+	var flight := _dictionary(source.get("flight"))
+	var id: Variant = flight.get("id")
+	if id is String and id.length() <= 64 and wallet.receipts.get("flight:" + id) == "flight":
+		wallet.flight = {"id": id, "doubled": flight.get("doubled", false) == true}
+		for currency in Wallet.VALUES:
+			wallet.flight[currency] = _count(flight.get(currency))
 
 
 func _date(value: Variant) -> String:

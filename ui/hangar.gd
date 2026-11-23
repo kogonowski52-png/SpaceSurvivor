@@ -4,6 +4,7 @@ signal action_requested(action: String, value: String)
 
 const Palette := preload("res://ui/palette.gd")
 const Catalog := preload("res://data/progression_catalog.gd")
+const ShopCatalog := preload("res://data/store/commerce_catalog.gd")
 const Pages := preload("res://ui/hangar_pages.gd")
 const Glyph := preload("res://ui/hangar_glyph.gd")
 const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
@@ -27,6 +28,7 @@ var _profile: Dictionary
 var _title: Label
 var _coins: Label
 var _materials: Label
+var _crystals: Label
 var _back_button: Button
 var _launch_button: Button
 var _status: Label
@@ -56,6 +58,7 @@ func refresh(data: Dictionary, tab: String = "overview") -> void:
 	_title.text = "ULEPSZENIA" if tab == "workshop" else TABS[tab]
 	_coins.text = str(_profile.get("coins", 0))
 	_materials.text = str(_profile.get("materials", 0))
+	_crystals.text = str(_profile.get("crystals", 0))
 	_back_button.text = "‹ HANGAR" if tab == "workshop" else "‹ MENU"
 	var sector: Dictionary = Catalog.SECTORS.get(str(_profile.get("sector_id", "peryhelium")), Catalog.SECTORS["peryhelium"])
 	_launch_button.text = "ROZPOCZNIJ MISJĘ  ·  %s" % str(sector["title"]).to_upper()
@@ -142,8 +145,9 @@ func _build_shell() -> void:
 	space.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(space)
-	_coins = _wallet(header, "KREDYTY", Palette.AMBER)
+	_coins = _wallet(header, "CREDITS", Palette.AMBER)
 	_materials = _wallet(header, "MATERIAŁY", Palette.CYAN)
+	_crystals = _wallet(header, "CRYSTALS", Palette.VIOLET)
 
 	_title = _label(shell, "HANGAR", 40)
 	_body = ScrollContainer.new()
@@ -174,7 +178,11 @@ func _build_shell() -> void:
 		tab_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tab_button.add_theme_font_size_override("font_size", 14)
 		_tabs[key] = tab_button
-	_launch_button = _button(shell, "HangarLaunchButton", "ROZPOCZNIJ MISJĘ", action_requested.emit.bind("launch", ""), true)
+	var actions := _row(7)
+	shell.add_child(actions)
+	_launch_button = _button(actions, "HangarLaunchButton", "ROZPOCZNIJ MISJĘ", action_requested.emit.bind("launch", ""), true)
+	_launch_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_button(actions, "HangarStoreButton", "SKLEP", action_requested.emit.bind("store", "")).custom_minimum_size.x = 88.0
 
 
 func _wallet(parent: Container, caption: String, tint: Color) -> Label:
@@ -295,6 +303,9 @@ func _preview(parent: VBoxContainer, id: String, ship: Dictionary) -> void:
 	var path := "res://assets/art/ship_peregrine_preview.png" if id == "peregrine" else str(ship["sprite"])
 	if ResourceLoader.exists(path):
 		sprite.texture = load(path)
+	var skin_id: String = _profile.get("commerce", {}).get("equipped_skins", {}).get(id, "")
+	if ShopCatalog.SKINS.has(skin_id):
+		sprite.modulate = ShopCatalog.SKINS[skin_id].tint
 	frame.add_child(sprite)
 	sprite.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	sprite.offset_left = 59

@@ -9,6 +9,10 @@ signal upgrade_selected(id: String)
 signal hangar_requested
 signal hangar_action(action: String, value: String)
 signal settings_requested
+signal store_requested
+signal store_action(action: String, value: String)
+signal rewarded_ad_requested(placement: String)
+signal revive_declined
 
 const Palette = preload("res://ui/palette.gd")
 const FlightGlyph = preload("res://ui/flight_glyph.gd")
@@ -16,6 +20,7 @@ const Body = preload("res://assets/fonts/Barlow-Medium.ttf")
 const Display = preload("res://assets/fonts/Oxanium.ttf")
 const Mission := preload("res://data/missions/peryhelium.tres")
 const Hangar := preload("res://ui/hangar.gd")
+const Store := preload("res://ui/premium_store.gd")
 const PAGE_MARGIN := 28.0
 const RARITIES := {
 	"common": { "title": "POSPOLITA", "accent": Palette.MUTED },
@@ -28,6 +33,7 @@ var _headline := FontVariation.new()
 var _detail := FontVariation.new()
 var _menu: Control
 var _hangar: Hangar
+var _store: Store
 var _hud: Control
 var _modal: Control
 var _pause_button: Button
@@ -71,6 +77,7 @@ func _ready() -> void:
 
 func show_menu(sortie: Dictionary = {}) -> void:
 	_clear_modal()
+	_drop_store()
 	_drop_hangar()
 	_drop(_hud)
 	_hud = null
@@ -149,7 +156,11 @@ func show_menu(sortie: Dictionary = {}) -> void:
 	launch.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_button_glyph(launch, "arrow", Palette.NIGHT, true)
 	var hangar := _button(actions, "HangarButton", "HANGAR", hangar_requested.emit)
-	hangar.custom_minimum_size.x = 132.0
+	hangar.custom_minimum_size.x = 108.0
+	var store := _button(actions, "StoreButton", "SKLEP", store_requested.emit)
+	store.custom_minimum_size.x = 84.0
+	for button in [launch, hangar, store]:
+		button.add_theme_font_size_override("font_size", 16)
 
 	var controls := _body(bottom, "Przeciągnij palcem • WASD / strzałki na PC", 18)
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -159,6 +170,7 @@ func show_menu(sortie: Dictionary = {}) -> void:
 
 func show_hangar(data: Dictionary, tab: String = "overview") -> void:
 	_clear_modal()
+	_drop_store()
 	_drop(_menu)
 	_menu = null
 	_drop(_hud)
@@ -181,8 +193,27 @@ func _drop_hangar() -> void:
 	_hangar = null
 
 
+func show_store(data: Dictionary) -> void:
+	if not is_instance_valid(_store):
+		_clear_modal()
+		_drop_hangar()
+		_drop(_menu)
+		_menu = null
+		_store = Store.new()
+		_store.name = "PremiumStore"
+		_store.action_requested.connect(store_action.emit)
+		add_child(_store)
+	_store.refresh(data)
+
+
+func _drop_store() -> void:
+	_drop(_store)
+	_store = null
+
+
 func show_hud() -> void:
 	_clear_modal()
+	_drop_store()
 	_drop_hangar()
 	_drop(_menu)
 	_menu = null
@@ -223,6 +254,17 @@ func show_upgrades(cards: Array[Dictionary]) -> void:
 		_add_upgrade(stack, cards[index], index)
 
 
+func show_revive(busy: bool, message: String) -> void:
+	var stack := _modal_stack("ReviveOverlay", Palette.VIOLET, 0.76)
+	_heading(stack, "SYGNAŁ AWARYJNY", "Przywróć połowę wytrzymałości i kontynuuj ten sam lot. Ożywienie jest dostępne raz na misję.", Palette.VIOLET, "salvage")
+	_body(stack, "Reklama testowa jest symulowana.", 18, Palette.AMBER)
+	if not message.is_empty():
+		_body(stack, message, 18, Palette.MUTED)
+	var revive := _button(stack, "ReviveAdButton", "OŻYW · REKLAMA TESTOWA", rewarded_ad_requested.emit.bind("revive"), true)
+	revive.disabled = busy
+	_button(stack, "DeclineReviveButton", "ZAKOŃCZ LOT", revive_declined.emit).disabled = busy
+
+
 func show_result(data: Dictionary) -> void:
 	var won := bool(data.get("won", false))
 	var elapsed := float(data.get("seconds", 0.0))
@@ -248,9 +290,12 @@ func show_result(data: Dictionary) -> void:
 		var loot := _row(8)
 		loot.name = "RewardRow"
 		stack.add_child(loot)
-		_stat(loot, "KREDYTY", "+%d" % int(data.get("coins", 0)))
+		_stat(loot, "CREDITS", "+%d" % int(data.get("coins", 0)))
 		_stat(loot, "MATERIAŁY", "+%d" % int(data.get("materials", 0)))
 		_stat(loot, "SKRZYNIE", "+%d" % int(data.get("crates", 0)))
+		var crystals := int(data.get("crystals", 0))
+		if crystals > 0:
+			_body(stack, "+%d Crystals" % crystals, 20, Palette.VIOLET)
 		if not data.get("ok", true):
 			_body(stack, "Zapis nagrody nie powiódł się.", 19, Palette.DANGER)
 	elif data.has("reward"):
@@ -264,14 +309,24 @@ func show_result(data: Dictionary) -> void:
 		currency.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var total := _tag(reward, "+%d" % int(data["reward"]), Palette.AMBER, 27)
 		total.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if data.get("double_available", false):
+		var double_reward := _button(stack, "DoubleRewardButton", "PODWÓJ WYPŁATĘ · REKLAMA TESTOWA",
+			rewarded_ad_requested.emit.bind("double"))
+		double_reward.add_theme_font_size_override("font_size", 16)
+		double_reward.disabled = data.get("ad_busy", false)
+	if not str(data.get("ad_message", "")).is_empty():
+		_body(stack, data.ad_message, 17, Palette.MUTED)
 	_spacer(stack, 5)
 	var hangar := _button(stack, "ResultHangarButton", "WRÓĆ DO HANGARU", hangar_requested.emit, true)
+	hangar.disabled = data.get("ad_busy", false)
 	_button_glyph(hangar, "arrow", Palette.NIGHT, true)
 	var actions := _row(8)
 	stack.add_child(actions)
 	var restart := _button(actions, "RestartButton", "LEĆ PONOWNIE", restart_requested.emit)
+	restart.disabled = data.get("ad_busy", false)
 	restart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var exit := _button(actions, "MenuButton", "MENU GŁÓWNE", menu_requested.emit)
+	exit.disabled = data.get("ad_busy", false)
 	exit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 
@@ -593,6 +648,8 @@ func _button(
 	button.add_theme_stylebox_override("normal", Palette.plate(base, border, 10, 9.0))
 	button.add_theme_stylebox_override("hover", Palette.plate(hovered, border, 10, 9.0))
 	button.add_theme_stylebox_override("pressed", Palette.plate(pressed, border, 10, 9.0))
+	button.add_theme_stylebox_override("disabled", Palette.plate(Palette.GRAPHITE, Palette.OUTLINE, 10, 9.0))
+	button.add_theme_color_override("font_disabled_color", Palette.MUTED)
 	var focus := Palette.plate(Color.TRANSPARENT, Palette.CYAN.lightened(0.5), 10)
 	focus.draw_center = false
 	focus.set_border_width_all(2)

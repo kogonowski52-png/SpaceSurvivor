@@ -176,11 +176,13 @@ func _until_upgrade() -> bool:
 func _test_defeat() -> void:
 	_watch_arena()
 	for attempt in 20:
-		if game.phase == "result" or _seconds() > 230.0:
+		if game.phase in ["revive", "result"] or _seconds() > 230.0:
 			break
 		await _advance_to(_seconds() + 12.0)
 		if game.phase == "upgrade":
 			await _click("UpgradeButton0")
+	if game.phase == "revive":
+		await _click("DeclineReviveButton")
 	if not _check(game.phase == "result" and not finished.get("won", true), "unmanned ship reaches natural defeat result"):
 		return
 	_check(finished.get("seconds", 0.0) > 0.0, "defeat reports elapsed play time")
@@ -210,6 +212,8 @@ func _test_completion() -> void:
 				observed_types[enemy.kind] = true
 			await _pilot_step()
 		_release_actions()
+		if game.phase == "revive":
+			await _click("DeclineReviveButton")
 		print("QA mission result (wave seed %d): " % seed_value, finished, " enemy types: ", observed_types.keys())
 		if game.phase == "result":
 			won = finished.get("won", false)

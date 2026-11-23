@@ -17,7 +17,11 @@ Statek sam atakuje. Zbieraj XP i przy każdym awansie wybieraj jedną z trzech k
 
 **Hangar** na ekranie tytułowym otwiera podgląd aktywnego statku i warsztat. Ulepszenia kadłuba, napędu i uzbrojenia są osobne dla każdego z czterech statków. W **Ekwipunku** można montować znalezione moduły w pięciu slotach. **Sektory** wybierają trasę następnego lotu, a **Nagrody** pozwalają otworzyć skrzynie i odebrać zadania, osiągnięcia oraz nagrody z siedmiodniowego kalendarza. [Założenia i symulacja pierwszych pięciu godzin](BALANCE.md)
 
-Postępy zapisują się automatycznie po zakupie, wyposażeniu, odbiorze nagrody i zakończeniu lotu. Profil w wersji 2 używa dwóch kopii o kolejnych numerach transakcji, weryfikowanych sumą SHA-256. Zapis trafia najpierw do pliku tymczasowego, a po weryfikacji zastępuje starszą kopię. Gra wczytuje najnowszą poprawną kopię. Pierwszy start z dawnym zapisem `flight_profile.cfg` przenosi rdzenie odzysku do materiałów i zachowuje poprzedni plik. Rozgrywka i postęp są lokalne, bez konta i połączenia sieciowego.
+Postępy zapisują się automatycznie po zakupie, wyposażeniu, odbiorze nagrody i zakończeniu lotu. Profil w wersji 3 używa dwóch kopii o kolejnych numerach transakcji, weryfikowanych sumą SHA-256. Zapis trafia najpierw do pliku tymczasowego, a po weryfikacji zastępuje starszą kopię. Gra wczytuje najnowszą poprawną kopię. Pierwszy start z dawnym zapisem `flight_profile.cfg` przenosi rdzenie odzysku do materiałów i zachowuje poprzedni plik. Rozgrywka i postęp są lokalne, bez konta i połączenia sieciowego.
+
+## Sklep i waluty
+
+**Sklep** w menu i hangarze obsługuje Credits, Crystals, skórki, zestawy modułów i przepustkę Helion. Crystals można zdobywać za zwycięstwa, z kalendarza i darmowego toru Helionu. Zakupy Google Play oraz reklamy z nagrodą działają w wyraźnie oznaczonej symulacji bez płatności i emisji reklam. [Katalog, scenariusze testowe i kontrakty integracji](COMMERCE.md)
 
 ## Uruchomienie
 
@@ -51,13 +55,13 @@ bash tests/run.sh --full-mission
 bash tests/capture.sh /sciezka/do/zrzutow
 ```
 
-Pierwsze polecenie importuje projekt, sprawdza uzbrojenie i wzorce obu bossów, po czym prowadzi statek skryptowanym sterowaniem przez dziesięciominutową misję uruchomioną z menu. Testy wzorców używają osobnych prób, które ustawiają zegar tuż przed ostrzeżeniem o pojawieniu się bossa. Drugie polecenie wymaga aktywnego serwera graficznego. Zapisuje klatki wyrenderowane w Godot w rozdzielczościach 720 × 1280, 1080 × 1920 i 1080 × 2400.
+Pierwsze polecenie importuje projekt, sprawdza uzbrojenie, bossów, hangar, audio i ekonomię, po czym prowadzi statek skryptowanym sterowaniem przez dziesięciominutową misję uruchomioną z menu. Testy wzorców używają osobnych prób, które ustawiają zegar tuż przed ostrzeżeniem o pojawieniu się bossa. Drugie polecenie wymaga aktywnego serwera graficznego. Zapisuje klatki wyrenderowane w Godot w rozdzielczościach 720 × 1280, 1080 × 1920 i 1080 × 2400.
 
 ## Architektura
 
 - `main.tscn` i `main.gd` przełączają menu, lot, awans, pauzę i wynik. Arena przekazuje statystyki i zdarzenia sygnałami.
 - `combat/` zawiera symulację areny, zachowania floty, bronie i efekty walki. Liczby aktywnych jednostek, pocisków i efektów są ograniczone.
 - `ui/` korzysta z własnej typografii, glifów i palety. Rozgrywka i interfejs mogą rozwijać się niezależnie.
-- `data/missions/`, `data/hangar/`, `data/weapons/` i `data/store/` zawierają typy zasobów dla przyszłej selekcji misji, wyposażenia statków, broni i ofert sklepowych.
+- `data/missions/`, `data/hangar/` i `data/weapons/` zawierają zasoby misji, wyposażenia i uzbrojenia. `data/store/` definiuje ofertę i operacje portfela, a `commerce/` obsługuje adaptery zakupów i reklam.
 - [Kierunek artystyczny i pochodzenie zasobów](ART_DIRECTION.md)
 - [Licencja Godot](licenses/Godot-LICENSE.txt) · [Informacje licencyjne komponentów Godot](licenses/Godot-COPYRIGHT.txt) · [Licencje krojów pisma](assets/fonts/README.md)

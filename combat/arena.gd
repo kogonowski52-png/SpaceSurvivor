@@ -5,6 +5,7 @@ signal telemetry(data: Dictionary)
 signal upgrade_requested(cards: Array[Dictionary])
 signal mission_ended(result: Dictionary)
 signal sound_requested(event: String)
+signal revive_offered
 
 const FlightLoadout := preload("res://combat/flight_loadout.gd")
 const EffectLibrary := preload("res://combat/battle_fx.gd")
@@ -14,6 +15,7 @@ const PULSE = HULL.primary_weapon
 const Arsenal := preload("res://combat/arsenal.gd")
 const WaveDirector := preload("res://combat/wave_director.gd")
 const Catalog := preload("res://data/progression_catalog.gd")
+const StoreCatalog := preload("res://data/store/commerce_catalog.gd")
 const ARENA := Rect2(-1240.0, -1540.0, 2480.0, 3080.0)
 const PLAYER_RADIUS := 21.0
 const CRUISE_SPEED := 238.0
@@ -138,6 +140,11 @@ var _boss_down_until := 0.0
 var _firing_flash := 0.0
 var _suspended := false
 var _ended := false
+var revive_offer_enabled := false
+var _revive_pending := false
+var _revive_spent := false
+var _livery := Color.WHITE
+var _livery_accent := Color.TRANSPARENT
 
 
 func configure(sortie: Dictionary) -> void:
@@ -148,6 +155,10 @@ func configure(sortie: Dictionary) -> void:
 	_ship_id = wanted_ship if Catalog.SHIPS.has(wanted_ship) else "peregrine"
 	_sector_id = wanted_sector if Catalog.SECTORS.has(wanted_sector) else "peryhelium"
 	_ship = Catalog.SHIPS[_ship_id]
+	var livery: Dictionary = StoreCatalog.SKINS.get(String(sortie.get("skin_id", "")), {})
+	if livery.get("ship") == _ship_id:
+		_livery = livery.tint
+		_livery_accent = livery.accent
 	_sector = Catalog.SECTORS[_sector_id]
 	_stats = Catalog.build_stats(_ship_id, {}, {})
 	var derived: Dictionary = sortie.get("stats", {})
@@ -193,6 +204,31 @@ func _ready() -> void:
 func set_suspended(suspended: bool) -> void:
 	_suspended = suspended
 	_clear_pointer()
+
+
+func can_revive() -> bool:
+	return _revive_pending and not _ended
+
+
+func revive() -> bool:
+	if not can_revive():
+		return false
+	_revive_pending = false
+	_revive_spent = true
+	_hp = _max_hp * 0.5
+	_hit_cooldown = 1.55
+	_hull_flash = 0.0
+	set_suspended(false)
+	_fx.ring(_player_position, CYAN, 102.0, 0.55)
+	sound_requested.emit("upgrade")
+	_publish_telemetry()
+	return true
+
+
+func decline_revive() -> void:
+	if can_revive():
+		_revive_pending = false
+		_finish(false)
 
 
 func apply_upgrade(id: String) -> bool:
@@ -268,7 +304,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _paused() -> bool:
-	return _ended or _suspended or not _pending_cards.is_empty()
+	return _ended or _revive_pending or _suspended or not _pending_cards.is_empty()
 
 
 func _physics_process(delta: float) -> void:
@@ -283,12 +319,12 @@ func _physics_process(delta: float) -> void:
 	_director.update(self, delta)
 	_step_spawns(delta)
 	_step_enemies(delta)
-	if _ended:
+	if _ended or _revive_pending:
 		queue_redraw()
 		return
 	_step_weapons(delta)
 	_step_shots(delta)
-	if _ended:
+	if _ended or _revive_pending:
 		queue_redraw()
 		return
 	_step_orbs(delta)
@@ -453,7 +489,7 @@ func _step_enemies(delta: float) -> void:
 				travel = _elite_travel(enemy, forward, distance, delta)
 			EnemyKind.MINIBOSS, EnemyKind.BOSS:
 				travel = _director.boss_travel(self, enemy, forward, distance, delta)
-		if _ended:
+		if _ended or _revive_pending:
 			return
 		if enemy.kind < EnemyKind.MINIBOSS:
 			travel += _separation(index, enemy)
@@ -466,7 +502,7 @@ func _step_enemies(delta: float) -> void:
 		if distance < PLAYER_RADIUS + enemy.radius:
 			_hurt_player(enemy.contact_damage)
 			enemy.position = _clamp_to_arena(enemy.position - forward * delta * 92.0, enemy.radius)
-			if _ended:
+			if _ended or _revive_pending:
 				return
 
 
@@ -576,7 +612,7 @@ func _step_shots(delta: float) -> void:
 				if shot.position.distance_squared_to(_player_position) < pow(MINE_RADIUS + PLAYER_RADIUS * 0.5, 2.0):
 					_hurt_player(shot.damage)
 				_recycle_shot(index)
-				if _ended:
+				if _ended or _revive_pending:
 					return
 			continue
 		if shot.life <= 0.0:
@@ -592,7 +628,7 @@ func _step_shots(delta: float) -> void:
 			if _player_position.distance_squared_to(closest) < PLAYER_RADIUS * PLAYER_RADIUS:
 				_hurt_player(shot.damage)
 				_recycle_shot(index)
-				if _ended:
+				if _ended or _revive_pending:
 					return
 			continue
 		var hit := _target_along_segment(before, shot.position)
@@ -714,7 +750,7 @@ func _effect_visible(position: Vector2, margin: float) -> bool:
 
 
 func _hurt_player(damage: float) -> void:
-	if _hit_cooldown > 0.0 or _ended:
+	if _hit_cooldown > 0.0 or _ended or _revive_pending:
 		return
 	_hp = maxf(0.0, _hp - damage * float(_sector["enemy_damage_multiplier"]) * float(_stats["damage_taken_multiplier"]) * _loadout.damage_multiplier())
 	_hit_cooldown = 0.71
@@ -724,7 +760,12 @@ func _hurt_player(damage: float) -> void:
 	sound_requested.emit("hurt")
 	_publish_telemetry()
 	if _hp <= 0.0:
-		_finish(false)
+		if revive_offer_enabled and not _revive_spent:
+			_revive_pending = true
+			set_suspended(true)
+			revive_offered.emit()
+		else:
+			_finish(false)
 
 
 func _spawn_orb(position: Vector2, value: int) -> void:
@@ -987,7 +1028,7 @@ func _draw_player(origin: Vector2) -> void:
 		return
 	var body_size := _ship_size(_player_texture, 93.0)
 	var boost := _player_velocity.length() / CRUISE_SPEED
-	var accent: Color = _ship["accent"]
+	var accent: Color = _livery_accent if _livery_accent.a > 0 else _ship["accent"]
 	var color := accent.lerp(WARM, _hull_flash / HULL_HIT_LIFETIME)
 	draw_set_transform(origin, _player_heading + PI * 0.5)
 	var exhaust: Vector2 = _ship["exhaust"]
@@ -995,10 +1036,10 @@ func _draw_player(origin: Vector2) -> void:
 	var length := 26.0 + 15.0 * boost
 	_fx.engine(self, nozzle, 5.1, length, Color("#5099ff") if _ship_id == "peregrine" else accent.darkened(0.17), _mission_time)
 	_fx.engine(self, Vector2(-nozzle.x, nozzle.y), 5.1, length, accent, _mission_time)
-	var tint := Color.WHITE
+	var tint := _livery
 	if _hull_flash > 0.0:
 		var impact := _hull_flash / HULL_HIT_LIFETIME
-		tint = Color.WHITE.lerp(Color("#ffb197"), impact * 0.45)
+		tint = _livery.lerp(Color("#ffb197"), impact * 0.45)
 	draw_texture_rect(_player_texture, Rect2(-body_size * 0.5, body_size), false, tint)
 	if _firing_flash > 0.0:
 		for sign_x: int in [-1, 1]:

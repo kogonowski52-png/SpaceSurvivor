@@ -218,9 +218,11 @@ func _calendar(parent: VBoxContainer, days: Array, action: Callable) -> void:
 		var tile := _panel(grid, Palette.CYAN if available else Palette.MUTED, available, 7)
 		tile.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_copy(tile, "DZIEŃ %s" % id, 13, Palette.CYAN if available else Palette.MUTED, true)
-		var prize := "%d monet\n%d mat." % [int(day.get("coins", 0)), int(day.get("materials", 0))]
+		var prize := "%d Credits\n%d mat." % [int(day.get("coins", 0)), int(day.get("materials", 0))]
 		if int(day.get("crates", 0)) > 0:
 			prize += "\n+%d skrz." % int(day["crates"])
+		if int(day.get("crystals", 0)) > 0:
+			prize += "\n+%d Crystals" % int(day["crystals"])
 		_copy(tile, prize, 15, Palette.TEXT)
 		if available and not claimed:
 			_button(tile, "ClaimCalendar_" + id, "ODBIERZ", action.bind("claim_calendar", id), Palette.CYAN, 0, 14, true)
