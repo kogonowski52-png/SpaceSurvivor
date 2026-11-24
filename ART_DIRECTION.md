@@ -119,3 +119,11 @@ Peregrine, Aegis, Specter i Aurora mają nowe przezroczyste sprite’y z ortogon
 Każdy Power-Up ma osobny model i podpis. Rdzeń jest osadzonym w uchwytach sześcianem, plazma ma podwójną komorę, rakiety dwie złote głowice, wiązka pojedynczy pryzmat, a naprawa zieloną kapsułę ze szczękami. Obręcz sygnalizuje punkt zbiórki. Frakcje rozróżnia również ruch i długość smug, a ostrzeżenia bossa używają położenia, kresek i strzałek.
 
 Autorskie ilustracje wygenerowane dla gry zapisano w `assets/art/premium/`. Obejmują 24 tekstury kadłubów, Asteriona, modułów, pocisku, eksplozji, plazmy, planet, mgławic, menu i hangaru. Wyizolowane elementy atlasów mają własną alfę i mipmapy. Tła oraz oprawa menu i hangaru mają osobne obrazy. Ikony wyposażenia i licencjonowane kroje pisma pochodzą z wcześniejszej wersji projektu. [Raport 0.9.0](VERSION_VERTICAL_0_9_0.md)
+
+## Rozdział I · Galaxy Strike 1.0
+
+Siedem nowych scenerii rozróżniają materiały i lokalne akcenty. Wrakowisko ma przetarte żebra i stare stopy w ciemnym błękicie. Burzę spajają stalowo-cyjanowe wyładowania. Bastion Vesperona przechodzi w przygaszoną zieleń. Rozpad Gwiazdy i Mgławica Widm trzymają najjaśniejsze chmury przy krawędziach pola. Przesmyk Ognia kontrastuje żar i sadzę. Otchłań wykorzystuje turkusowy łuk horyzontu przy ciemnym środku.
+
+Interceptor ma długie złociste groty, Carrier szerokie boczne radiatory, Bomber dwie ciężkie komory, a Phantom jasne srebrno-fioletowe ostrza z prześwitami. Vesperon używa grafitowych bloków pancerza i ruchomych szyn. Nadira rozpoznaje się po jasnej ceramice, otwartym skrzydle i turkusowym rdzeniu. Korony, płyty, skały i moduły korzystają z osobnych sprite’ów z alfą. Ruch i ostrzeżenia opisują faktyczny obszar zagrożenia.
+
+Atlas korzysta z osobnej ilustracji galaktyki i toru spinającego karty lotów. Jasny numer i cyjan oznaczają akcję, kolor sektora grupuje trasę, a bursztyn wyróżnia bossów i gwiazdy. Nagrody i rekord mieszczą się bez zmiany kadru kart. Zasoby rozdziału są w `assets/art/chapter_one/`. Dźwięki i muzykę przygotowano dla gry przez syntezę w `tools/synthesize_chapter_one_audio.py`. [Raport wersji 1.0.0](VERSION_VERTICAL_1_0_0.md)

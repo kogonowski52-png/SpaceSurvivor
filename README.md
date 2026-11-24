@@ -1,6 +1,6 @@
 # Galaxy Strike — Próg Helionu
 
-Pionowa strzelanka kosmiczna 2D w Godot 4.7.2 stable. Kampania 0.9.0 obejmuje trzy poziomy po dziesięć fal. Każdy lot korzysta z osobnej kompozycji nieba, planety i zsynchronizowanych formacji. Przechwyć patrol w **Echu pasa**, rozbij spiralę w **Załamaniu Pryzmatu**, a na **Progu Helionu** pokonaj okręt dowodzenia Asterion. Każdy ukończony poziom otwiera następny i pozostaje dostępny do powtórki. [Raport 0.9.0 i pliki do pobrania](VERSION_VERTICAL_0_9_0.md)
+Pionowa strzelanka 2D w Godot 4.7.2 stable. Pierwszy rozdział ma dziesięć lotów w czterech sektorach oraz trzy okręty dowodzenia. Zacznij w Echu pasa, przebij się przez Wrakowisko Tytana i pokonaj Nadira w Sercu Otchłani. Atlas pozwala powtarzać ukończone loty i poprawiać wynik oraz ocenę gwiazdkową. [Raport 1.0.0 i APK](VERSION_VERTICAL_1_0_0.md)
 
 ## Sterowanie
 
@@ -10,7 +10,7 @@ Broń strzela automatycznie w górę. Rdzenie zwiększają poziom siły ognia, a
 
 ## Hangar, zapis i sklep
 
-Wybrany statek, ulepszenia i wyposażenie wpływają na kampanię. Hangar i magazyn nagród korzystają z tego samego profilu. Wersja 4 zapisu wczytuje profil z 0.7.x oraz przechowuje odblokowania i najlepsze wyniki kampanii. Kolejny numer transakcji i SHA-256 pozwalają wybrać aktualną z dwóch kopii zapisu. Nagroda i wynik poziomu zapisują się w jednej transakcji.
+Wybrany statek, ulepszenia i wyposażenie wpływają na kampanię. Hangar i magazyn nagród korzystają z tego samego profilu. Wersja 5 zapisu wczytuje dotychczasowy profil i przechowuje odblokowania, rekordy oraz gwiazdy kampanii. Kolejny numer transakcji i SHA-256 pozwalają wybrać aktualną z dwóch kopii zapisu. Nagroda i wynik poziomu zapisują się w jednej transakcji.
 
 Sklep zachowuje istniejące katalogi, Credits, Crystals, skórki, pakiety i tor nagród. W kompilacji testowej zakup za prawdziwe pieniądze jest wyłączony. [Ekonomia i dotychczasowe testy](COMMERCE.md) · [Integracja Androida](ANDROID_INTEGRATION.md)
 
@@ -24,11 +24,12 @@ godot
 ```
 
 ```sh
-godot --headless --fixed-fps 60 --script res://tests/vertical_campaign.gd
+godot --headless --fixed-fps 60 --script res://tests/chapter_one.gd
+godot --headless --fixed-fps 60 --script res://tests/chapter_one.gd -- --balance-chapter
 bash tests/run.sh --full-mission
 ```
 
-Pierwszy test prowadzi pilota przez wszystkie trzy loty i sprawdza sterowanie, kolizje, uzbrojenie, wynik oraz zapis. Skrypt `tests/premium_visual.gd` uruchamia próby graficzne na aktywnym ekranie, zapis rozgrywki lub pomiar czasu klatek. Drugi uruchamia regresje wspólnych systemów oraz pełną dziesięciominutową misję Survivor. Scena `res://main.tscn` nadal uruchamia Survivor w Godot. [Archiwum wersji 0.7.0](https://github.com/kogonowski52-png/SpaceSurvivor/tree/archive/survivor-0.7.0)
+Pierwszy test prowadzi pilota przez dziesięć lotów i sprawdza migrację, zapis, nowe jednostki oraz przejścia. Drugi symuluje trzy zestawy wyposażenia w lotach z bossami. Skrypt `tests/chapter_capture.gd` zapisuje klatki, nagranie i pomiary. Skrypt `tests/run.sh` uruchamia regresje wspólnych systemów oraz dziesięciominutową misję Survivor. Scena `res://main.tscn` nadal uruchamia Survivor w Godot. [Archiwum wersji 0.7.0](https://github.com/kogonowski52-png/SpaceSurvivor/tree/archive/survivor-0.7.0)
 
 ## Eksport Android
 
