@@ -48,7 +48,8 @@ var _has_audio_output := false
 
 
 func _ready() -> void:
-	_has_audio_output = AudioServer.get_driver_name() != "Dummy"
+	# Movie Maker mixes into its recording even though it uses the Dummy driver.
+	_has_audio_output = AudioServer.get_driver_name() != "Dummy" or "--write-movie" in OS.get_cmdline_args()
 	if not _has_audio_output:
 		return
 	for cue in SCORE:

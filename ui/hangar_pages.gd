@@ -51,24 +51,27 @@ func _inventory(parent: VBoxContainer, profile: Dictionary, action: Callable, hi
 	var heading := _row(parent, 10)
 	_copy(heading, "Na pokładzie · " + str(ship["title"]), 25, Palette.TEXT, true, true)
 	_copy(heading, "%d / %d GNIAZD" % [equipped.size(), Catalog.SLOTS.size()], 16, Palette.CYAN, true)
-	var section := _stack(parent, 6)
-	for slot in Catalog.SLOTS:
-		var id := str(equipped.get(slot, ""))
-		var spec: Dictionary = Catalog.ITEMS.get(id, {})
-		var filled := not spec.is_empty()
-		var accent := _rarity(str(spec.get("rarity", "common")))
-		var slot_body := _panel(section, accent, filled, 8)
-		var line := _row(slot_body, 10)
-		var symbol := _icon(line, slot, accent if filled else Palette.OUTLINE.lightened(0.38), id, 43,
-			spec.get("rarity") == "legendary")
-		var text := _stack(line, 0, true)
-		_copy(text, str(SLOT_NAMES[slot]).to_upper(), 15, accent if filled else Palette.MUTED, true)
-		_copy(text, str(spec.get("title", "Moduł fabryczny")), 21, Palette.TEXT if filled else Palette.MUTED)
-		if filled:
-			_button(line, "Unequip_" + slot, "ZDEJMIJ", action.bind("unequip", slot), Palette.MUTED, 104, 16)
-		if filled and id == highlighted:
-			symbol.pivot_offset = symbol.custom_minimum_size * 0.5
-			_reveal_motion(slot_body, symbol, accent, false)
+	if _campaign_mode:
+		_compact_slots(parent, equipped, action, highlighted)
+	else:
+		var section := _stack(parent, 6)
+		for slot in Catalog.SLOTS:
+			var id := str(equipped.get(slot, ""))
+			var spec: Dictionary = Catalog.ITEMS.get(id, {})
+			var filled := not spec.is_empty()
+			var accent := _rarity(str(spec.get("rarity", "common")))
+			var slot_body := _panel(section, accent, filled, 8)
+			var line := _row(slot_body, 10)
+			var symbol := _icon(line, slot, accent if filled else Palette.OUTLINE.lightened(0.38), id, 43,
+				spec.get("rarity") == "legendary")
+			var text := _stack(line, 0, true)
+			_copy(text, str(SLOT_NAMES[slot]).to_upper(), 15, accent if filled else Palette.MUTED, true)
+			_copy(text, str(spec.get("title", "Moduł fabryczny")), 21, Palette.TEXT if filled else Palette.MUTED)
+			if filled:
+				_button(line, "Unequip_" + slot, "ZDEJMIJ", action.bind("unequip", slot), Palette.MUTED, 104, 16)
+			if filled and id == highlighted:
+				symbol.pivot_offset = symbol.custom_minimum_size * 0.5
+				_reveal_motion(slot_body, symbol, accent, false)
 
 	var owned: Array = profile.get("inventory", [])
 	var header := _row(parent, 8)
@@ -88,6 +91,34 @@ func _inventory(parent: VBoxContainer, profile: Dictionary, action: Callable, hi
 		_item_card(parent, id, spec, equipped_here, action)
 
 
+func _compact_slots(parent: VBoxContainer, equipped: Dictionary, action: Callable, highlighted: String) -> void:
+	var grid := _row(parent, 6)
+	for slot in Catalog.SLOTS:
+		var id := str(equipped.get(slot, ""))
+		var spec: Dictionary = Catalog.ITEMS.get(id, {})
+		var filled := not spec.is_empty()
+		var accent := _rarity(str(spec.get("rarity", "common"))) if filled else Palette.MUTED
+		var tile := _panel(grid, accent, filled, 5)
+		var plate := tile.get_parent() as PanelContainer
+		plate.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		plate.tooltip_text = str(spec.get("title", "Moduł fabryczny"))
+		var symbol := _icon(tile, slot, accent, id, 52)
+		symbol.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		var name := _copy(tile, str(SLOT_NAMES[slot]), 15, accent, true)
+		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name.autowrap_mode = TextServer.AUTOWRAP_OFF
+		if filled:
+			var button := _button(tile, "Unequip_" + slot, "ZDEJMIJ", action.bind("unequip", slot), Palette.MUTED, 0, 13)
+			button.custom_minimum_size.y = 37.0
+			button.accessibility_name = "Zdejmij " + str(spec["title"])
+			if id == highlighted:
+				symbol.pivot_offset = symbol.custom_minimum_size * 0.5
+				_reveal_motion(tile, symbol, accent, false)
+		else:
+			var base := _copy(tile, "FABRYCZNY", 12, Palette.MUTED, true)
+			base.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+
 func _inventory_order(left: String, right: String) -> bool:
 	var a: Dictionary = Catalog.ITEMS[left]
 	var b: Dictionary = Catalog.ITEMS[right]
@@ -104,9 +135,9 @@ func _item_card(parent: Container, id: String, spec: Dictionary, equipped: bool,
 	var rarity := str(spec["rarity"])
 	var accent := _rarity(rarity)
 	var rare := rarity != "common"
-	var panel := _panel(parent, accent, rare)
-	var line := _row(panel, 11)
-	_icon(line, spec["slot"], accent, id, 60, rarity == "legendary")
+	var panel := _panel(parent, accent, rare or equipped)
+	var line := _row(panel, 13 if _campaign_mode else 11)
+	_icon(line, spec["slot"], accent, id, 79 if _campaign_mode else 60, rarity == "legendary")
 	var text := _stack(line, 4, true)
 	var labels := _row(text, 6)
 	_copy(labels, str(SLOT_NAMES[spec["slot"]]).to_upper(), 15, Palette.MUTED, true)
@@ -398,6 +429,16 @@ func _copy(parent: Container, text: String, size: int, color: Color, heading := 
 
 
 func _icon(parent: Container, slot: String, accent: Color, item: String, extent: int, legendary := false) -> Control:
+	if _campaign_mode and not item.is_empty():
+		var brush := TextureRect.new()
+		brush.texture = load("res://assets/art/modules/%s.webp" % slot)
+		brush.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		brush.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		brush.custom_minimum_size = Vector2(extent, extent)
+		brush.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		brush.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		parent.add_child(brush)
+		return brush
 	var icon := Glyph.new()
 	icon.kind = slot
 	icon.tint = accent

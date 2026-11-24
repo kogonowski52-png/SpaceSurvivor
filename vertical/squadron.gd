@@ -1,28 +1,33 @@
 extends RefCounted
-## Formation choreography runs in the 540 × 960 flight field.
+## Timed squadrons share arrival paths and their initial fire cue.
 
 enum Kind { SCOUT, RAZOR, WARDEN }
 
 const ART := [
-	preload("res://assets/art/enemy_scout_flight.png"),
-	preload("res://assets/art/enemy_razor_flight.png"),
-	preload("res://assets/art/enemy_elite_flight.png"),
+	preload("res://assets/art/premium/enemies/scout.webp"),
+	preload("res://assets/art/premium/enemies/razor.webp"),
+	preload("res://assets/art/premium/enemies/warden.webp"),
 ]
-const COLORS := [Color("#ffba76"), Color("#80ecd7"), Color("#f09cc4")]
-const SIZE := [55.0, 63.0, 83.0]
-const HP := [23.0, 35.0, 64.0]
-const RADIUS := [17.0, 19.0, 25.0]
-const SHOT_INTERVAL := [3.35, 2.65, 2.85]
+const COLORS := [Color("#ffb36f"), Color("#86e5ca"), Color("#f999ab")]
+const SIZE := [54.0, 65.0, 83.0]
+const HP := [21.0, 38.0, 72.0]
+const RADIUS := [17.0, 19.0, 26.0]
+const SHOT_INTERVAL := [4.35, 3.70, 4.1]
+const ENTRY_TIME := [0.96, 1.17, 1.49]
 
 class Fighter:
 	var kind := 0
 	var position := Vector2.ZERO
+	var origin := Vector2.ZERO
 	var anchor := Vector2.ZERO
+	var center := Vector2.ZERO
 	var form := ""
 	var offset := 0.0
+	var delay := 0.0
+	var sweep := 0.0
 	var age := 0.0
-	var deadline := 16.0
-	var entry := 1.25
+	var deadline := 9.0
+	var entry := 1.1
 	var hp := 0.0
 	var flash := 0.0
 	var fire_in := 0.0
@@ -33,14 +38,18 @@ class Fighter:
 		kind = spec.kind
 		form = spec.form
 		anchor = spec.anchor
+		center = spec.center
 		offset = spec.phase
-		deadline = hold + spec.phase * 0.3
-		entry = 1.16 + kind * 0.16
-		position = Vector2(spec.left, -70.0)
+		delay = spec.delay
+		sweep = spec.sweep
+		deadline = hold
+		entry = ENTRY_TIME[kind]
+		origin = Vector2(spec.left, -72.0)
+		position = origin
 		age = 0.0
-		hp = HP[kind] * (1.0 + (threat - 1) * 0.22)
+		hp = HP[kind] * (1.0 + (threat - 1) * 0.19)
 		flash = 0.0
-		fire_in = 1.15 + spec.phase * 0.41
+		fire_in = float(spec.volley) - delay
 		heading = PI
 		departed = false
 
@@ -48,28 +57,32 @@ class Fighter:
 		age += delta
 		flash = maxf(0.0, flash - delta)
 		var prior := position
-		var swing := sin(age * (1.15 + kind * 0.16) + offset)
-		if age < entry:
-			var lift := 1.0 - pow(1.0 - age / entry, 2.45)
-			position.y = lerpf(-70.0, anchor.y, lift)
-			position.x = move_toward(position.x, anchor.x, delta * 380.0)
+		var elapsed := age - entry
+		var wave_clock := elapsed + delay
+		if elapsed < 0.0:
+			var progress := age / entry
+			var coast := 1.0 - pow(1.0 - progress, 2.18)
+			position = origin.lerp(anchor, coast)
+			position.x += sin(progress * PI) * sweep
 		elif form == "raid":
-			var bank_in := smoothstep(entry, entry + 0.42, age)
-			position = Vector2(anchor.x + swing * 83.0 * bank_in, anchor.y + (age - entry) * (130.0 + kind * 12.0))
+			var bank_in := smoothstep(0.0, 0.48, elapsed)
+			position = Vector2(anchor.x + sin(elapsed * 1.84 + offset) * 105.0 * bank_in,
+				anchor.y + elapsed * (137.0 + kind * 15.0))
 		elif age > deadline:
-			position.y += delta * 191.0
-			position.x = move_toward(position.x, anchor.x + 85.0 * signf(anchor.x - 270.0), delta * 52.0)
+			position.y += delta * (170.0 + kind * 14.0)
+			position.x += signf(anchor.x - 270.0) * delta * 42.0
 		elif form == "spiral":
-			var angle := offset + (age - entry) * 1.85
-			var flare := smoothstep(entry, entry + 0.82, age)
-			position = anchor + Vector2(cos(angle) * 138.0, sin(angle) * 73.0) * flare
+			var theta := offset + elapsed * 1.12
+			var orbit := 1.0 + 0.12 * sin(elapsed * 1.6)
+			position = center + Vector2(cos(theta) * 128.0, sin(theta) * 74.0) * orbit
 		else:
-			var drift_in := smoothstep(entry, entry + 0.36, age)
-			position = anchor + Vector2(swing * (23.0 + kind * 8.0), sin(age * 1.2 + offset) * 13.0) * drift_in
-		position.x = clampf(position.x, 30.0, 510.0)
-		var bank := clampf((position.x - prior.x) / maxf(delta * 290.0, 0.1), -0.6, 0.6)
-		heading = lerp_angle(heading, PI - bank, minf(1.0, delta * 12.0))
-		departed = position.y > 1_040.0
+			var drift_in := smoothstep(0.0, 0.42, elapsed)
+			var sway := sin(wave_clock * 1.22) * (37.0 if form == "group" else 24.0)
+			position = anchor + Vector2(sway, sin(wave_clock + offset) * 10.0) * drift_in
+		position.x = clampf(position.x, 25.0, 515.0)
+		var bank := clampf((position.x - prior.x) / maxf(delta * 250.0, 0.1), -0.78, 0.78)
+		heading = lerp_angle(heading, PI - bank, minf(1.0, delta * 11.0))
+		departed = position.y > 1_030.0
 
 
 static func plan(groups: Array) -> Array[Dictionary]:
@@ -77,23 +90,30 @@ static func plan(groups: Array) -> Array[Dictionary]:
 	for group: Array in groups:
 		var form: String = group[0]
 		var count: int = group[2]
+		var bias := float(group[5]) if group.size() > 5 else 0.0
+		var middle := Vector2(270.0 + bias, float(group[4]))
+		var spacing := 0.23 if form in ["raid", "spiral"] else 0.065
 		for index in count:
 			var spread := float(index) / maxf(1.0, count - 1.0) * 2.0 - 1.0
-			var x := 270.0 + spread * 187.0
-			var y: float = group[4]
-			var phase := float(index) * 0.59
+			var anchor := middle + Vector2(spread * (157.0 if absf(bias) > 30.0 else 180.0), 0.0)
+			var phase := spread * 1.6
+			var sweep := signf(spread) * 47.0
 			match form:
-				"wedge": y += 72.0 * (1.0 - absf(spread))
-				"arc": y += 68.0 * spread * spread
+				"wedge": anchor.y += 83.0 * (1.0 - absf(spread))
+				"arc": anchor.y += 72.0 * spread * spread
 				"spiral":
-					var angle := TAU * index / count
-					x = 270.0 + cos(angle) * 79.0
-					y += sin(angle) * 49.0
-					phase = angle
-				"raid": x = 270.0 + float(index % 2 * 2 - 1) * (93.0 + 8.0 * (index % 3))
-			var spacing := 0.32 if form == "raid" else (0.17 if form == "spiral" else 0.045)
-			entries.append({"at": float(group[3]) + index * spacing, "form": form, "kind": int(group[1]),
-				"phase": phase, "left": x if form == "line" else clampf(x + 48.0 * spread, 34.0, 506.0),
-				"anchor": Vector2(x, y)})
+					phase = TAU * index / count
+					anchor = middle + Vector2(cos(phase) * 128.0, sin(phase) * 74.0)
+					sweep = -signf(cos(phase)) * 133.0
+				"raid": anchor.x = middle.x + float(index % 2 * 2 - 1) * (98.0 + 12.0 * (index % 3))
+				"group":
+					var side := -1.0 if index < ceili(count / 2.0) else 1.0
+					anchor = middle + Vector2(side * 122.0 + float(index % 3 - 1) * 33.0, float(index % 3) * 34.0)
+					sweep = side * 97.0
+			var delay := index * spacing
+			var start_x := clampf(anchor.x + sweep * 0.84, 27.0, 513.0)
+			entries.append({"at": float(group[3]) + delay, "form": form, "kind": int(group[1]),
+				"phase": phase, "delay": delay, "left": start_x, "anchor": anchor, "center": middle,
+				"sweep": sweep, "volley": 2.52 + (index * 0.11 if form == "raid" else 0.0)})
 	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.at < b.at)
 	return entries

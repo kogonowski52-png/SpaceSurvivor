@@ -11,6 +11,11 @@ const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
 const Display := preload("res://assets/fonts/Oxanium.ttf")
 const Inspection := preload("res://ui/hull_inspection.gdshader")
 const HangarArt := preload("res://assets/art/hangar.jpg")
+const PremiumHangarArt := preload("res://assets/art/premium/hangar.jpg")
+const PilotArt := preload("res://vertical/flight_art.gd")
+const FLIGHT_ROLES := {
+	"peregrine": "MYŚLIWIEC", "aegis": "CIĘŻKI MYŚLIWIEC", "specter": "PRZECHWYTUJĄCY", "aurora": "ESKORTA DRONÓW",
+}
 const TABS := {
 	"overview": "HANGAR", "inventory": "EKWIPUNEK", "sectors": "SEKTORY", "rewards": "NAGRODY",
 }
@@ -104,7 +109,7 @@ func _background() -> void:
 	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	image.texture = HangarArt
+	image.texture = PremiumHangarArt if campaign_mode else HangarArt
 	add_child(image)
 	image.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
@@ -216,6 +221,9 @@ func _overview(parent: VBoxContainer) -> void:
 	var tone: Color = ship["accent"]
 	var name_label := _label(parent, ship["title"], 36, Palette.TEXT)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if campaign_mode:
+		var role := _label(parent, FLIGHT_ROLES[selected], 15, tone.lightened(0.21))
+		role.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_preview(parent, selected, ship)
 	var traits := str(ship["description"])
 	if campaign_mode:
@@ -250,7 +258,7 @@ func _overview(parent: VBoxContainer) -> void:
 func _ship_option(picker: HBoxContainer, id: String, ship: Dictionary, selected: bool, locked: bool) -> void:
 	var tone: Color = ship["accent"]
 	var control := _button(picker, "ShipButton_%s" % id, "", action_requested.emit.bind("select_ship", id))
-	control.custom_minimum_size.y = 98.0
+	control.custom_minimum_size.y = 105.0 if campaign_mode else 98.0
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	control.accessibility_name = str(ship["title"])
 	control.disabled = locked
@@ -264,21 +272,19 @@ func _ship_option(picker: HBoxContainer, id: String, ship: Dictionary, selected:
 	thumbnail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	thumbnail.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	thumbnail.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	var path := _hull_art(id, ship)
-	if ResourceLoader.exists(path):
-		thumbnail.texture = load(path)
+	thumbnail.texture = _hull_texture(id, ship)
 	thumbnail.modulate = Color("#c8d5e5") if locked else Color.WHITE
 	control.add_child(thumbnail)
 	thumbnail.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	thumbnail.offset_left = 7.0
 	thumbnail.offset_right = -7.0
 	thumbnail.offset_top = 6.0
-	thumbnail.offset_bottom = 58.0
+	thumbnail.offset_bottom = 64.0 if campaign_mode else 58.0
 	var name_label := _label(control, str(ship["title"]), 16, tone.lightened(0.23) if selected else Palette.TEXT)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	name_label.offset_top = 57.0
-	name_label.offset_bottom = 78.0
+	name_label.offset_top = 63.0 if campaign_mode else 57.0
+	name_label.offset_bottom = name_label.offset_top + 21.0
 	if locked:
 		var sector: Dictionary = Catalog.SECTORS.get(ship["unlock_sector"], {})
 		var unlock := "%s · %d wygr." % [sector.get("title", ""), ship["unlock_wins"]]
@@ -290,7 +296,7 @@ func _ship_option(picker: HBoxContainer, id: String, ship: Dictionary, selected:
 
 
 func _ship_option_status(control: Button, text: String, tone: Color) -> void:
-	var hint := _label(control, text, 12, tone)
+	var hint := _label(control, text, 13 if campaign_mode else 12, tone)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	hint.offset_top = -21.0
@@ -303,7 +309,7 @@ func _preview(parent: VBoxContainer, id: String, ship: Dictionary) -> void:
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tone: Color = ship["accent"]
 	var extra_height := clampf(get_viewport_rect().size.y - 960.0, 0.0, 240.0)
-	frame.custom_minimum_size.y = 256.0 + extra_height * 0.44
+	frame.custom_minimum_size.y = (310.0 + extra_height * 0.32) if campaign_mode else (256.0 + extra_height * 0.44)
 	frame.add_theme_stylebox_override("panel", Palette.plate(Color("#0a1422"), tone.darkened(0.62), 13, 3))
 	parent.add_child(frame)
 	var field := Control.new()
@@ -311,12 +317,12 @@ func _preview(parent: VBoxContainer, id: String, ship: Dictionary) -> void:
 	field.clip_contents = true
 	frame.add_child(field)
 	var backdrop := TextureRect.new()
-	backdrop.texture = HangarArt
+	backdrop.texture = PremiumHangarArt if campaign_mode else HangarArt
 	backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	backdrop.modulate = tone.lerp(Color("#a7bad3"), 0.74)
-	backdrop.modulate.a = 0.38
+	backdrop.modulate.a = 0.72 if campaign_mode else 0.38
 	field.add_child(backdrop)
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var docking := Control.new()
@@ -328,9 +334,7 @@ func _preview(parent: VBoxContainer, id: String, ship: Dictionary) -> void:
 	sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	var path := _hull_art(id, ship)
-	if ResourceLoader.exists(path):
-		sprite.texture = load(path)
+	sprite.texture = _hull_texture(id, ship)
 	var skin_id: String = _profile.get("commerce", {}).get("equipped_skins", {}).get(id, "")
 	if ShopCatalog.SKINS.has(skin_id):
 		sprite.modulate = ShopCatalog.SKINS[skin_id].tint
@@ -356,8 +360,11 @@ func _preview(parent: VBoxContainer, id: String, ship: Dictionary) -> void:
 	float_animation.parallel().tween_property(sprite, "offset_bottom", -17.0, 2.8)
 
 
-func _hull_art(id: String, ship: Dictionary) -> String:
-	return "res://assets/art/ship_peregrine_preview.png" if id == "peregrine" else str(ship["sprite"])
+func _hull_texture(id: String, ship: Dictionary) -> Texture2D:
+	if campaign_mode:
+		return PilotArt.hull(id)
+	var path := "res://assets/art/ship_peregrine_preview.png" if id == "peregrine" else str(ship["sprite"])
+	return load(path) as Texture2D
 
 
 func _draw_docking_field(field: Control, tone: Color) -> void:
@@ -379,8 +386,18 @@ func _workshop(parent: VBoxContainer) -> void:
 	var selected := str(_profile.get("ship_id", "peregrine"))
 	var ship: Dictionary = Catalog.SHIPS.get(selected, Catalog.SHIPS["peregrine"])
 	var title := _panel(parent, Color("#111e2cf2"), Palette.OUTLINE)
-	_label(title, ship["title"], 27, ship["accent"])
-	_label(title, "Zmiany dotyczą tego statku we wszystkich kolejnych misjach.", 20, Palette.MUTED, true)
+	var briefing := title
+	if campaign_mode:
+		var header := _row(14)
+		title.add_child(header)
+		var image := _module_art(_hull_texture(selected, ship), Vector2(113.0, 87.0))
+		header.add_child(image)
+		briefing = _column(3)
+		briefing.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		briefing.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		header.add_child(briefing)
+	_label(briefing, ship["title"], 29 if campaign_mode else 27, ship["accent"])
+	_label(briefing, "Stałe ulepszenia wybranego statku.", 20, Palette.MUTED, true)
 
 	var stats: Dictionary = _data.get("stats", Catalog.BASE_STATS)
 	var prices: Dictionary = _data.get("upgrade_prices", {})
@@ -391,11 +408,15 @@ func _workshop(parent: VBoxContainer) -> void:
 		var card := _panel(parent, Color("#0d1b2bf5"), tone.darkened(0.59))
 		var header := _row(8)
 		card.add_child(header)
-		var icon := Glyph.new()
-		icon.kind = spec["icon"]
-		icon.tint = tone
-		icon.custom_minimum_size = Vector2(35, 35)
-		header.add_child(icon)
+		if campaign_mode:
+			var module := load("res://assets/art/modules/%s.webp" % spec.icon) as Texture2D
+			header.add_child(_module_art(module, Vector2(53.0, 41.0)))
+		else:
+			var icon := Glyph.new()
+			icon.kind = spec["icon"]
+			icon.tint = tone
+			icon.custom_minimum_size = Vector2(35, 35)
+			header.add_child(icon)
 		var track_title := _label(header, spec["title"], 25)
 		track_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var level := int(price.get("level", 0))
@@ -448,6 +469,16 @@ func _workshop(parent: VBoxContainer) -> void:
 			animation.parallel().tween_property(rank, "value", float(level), 0.57).from(float(maxi(0, level - 1)))
 			if gain != null:
 				animation.parallel().tween_property(gain, "modulate:a", 1.0, 0.45).from(0.35).set_delay(0.12)
+
+
+func _module_art(texture: Texture2D, extent: Vector2) -> TextureRect:
+	var image := TextureRect.new()
+	image.texture = texture
+	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	image.custom_minimum_size = extent
+	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return image
 
 
 func _stat_value(stat: String, stats: Dictionary) -> String:

@@ -141,6 +141,13 @@ func _target(craft: Flight, at: Vector2) -> Squadron.Fighter:
 func _test_navigation_and_flights() -> void:
 	if not _check(game.phase == "combat" and is_instance_valid(game.flight), "first lot opens a vertical field"):
 		return
+	var opening: Flight = game.flight
+	await _step_to(opening, 1.06)
+	_check(opening._enemies.any(func(enemy: Squadron.Fighter) -> bool: return enemy.position.y > 16.0)
+		and opening._friendly > 0, "opening flight has enemies and friendly fire within 1.1 seconds")
+	await _step_to(opening, 4.05)
+	_check(opening._intro_core_sent and (not opening._pickups.is_empty() or opening.gear.rank > 1),
+		"first fire core is in reach within four seconds even if the pilot misses")
 	await _test_controls()
 	await _click("PauseButton")
 	var old: Flight = game.flight
@@ -160,6 +167,7 @@ func _test_navigation_and_flights() -> void:
 		if not _check(game.phase == "result" and game._result.get("won", false), "autopilot wins " + id + " using ordinary input and hit detection"):
 			return
 		_check(game._result.waves == Campaign.STAGES[id].waves.size(), "all waves resolved for " + id)
+		_check(game._result.seconds >= 120.0 and game._result.seconds <= 240.0, "sortie meets the two to four minute pacing target: " + id)
 		_check(game._result.coins > 0 and game.progression.snapshot().profile.campaign[id].cleared, "result pays and unlocks " + id)
 		print("PLAYTHROUGH %s %s" % [id, str(game._result)])
 		if id == "echo":
@@ -205,6 +213,14 @@ func _test_controls() -> void:
 	root.push_input(press, true)
 	await _steps(4)
 	_check(craft.player_position.distance_to(start) < 1.0, "touch grab retains the finger offset")
+	var second := InputEventScreenTouch.new()
+	second.index = 1
+	second.pressed = true
+	second.position = finger - Vector2(58.0, 0.0)
+	root.push_input(second, true)
+	_check(craft._pointer == 0, "a second finger does not take control of the ship")
+	second.pressed = false
+	root.push_input(second, true)
 	var drag := InputEventScreenDrag.new()
 	drag.index = 0
 	drag.position = finger + Vector2(106, -42)
@@ -215,6 +231,21 @@ func _test_controls() -> void:
 	press.pressed = false
 	press.position = drag.position
 	root.push_input(press, true)
+	var mouse := InputEventMouseButton.new()
+	mouse.button_index = MOUSE_BUTTON_LEFT
+	mouse.pressed = true
+	mouse.position = craft.to_global(craft.player_position + Vector2(15.0, 24.0))
+	root.push_input(mouse, true)
+	var before_mouse := craft.player_position
+	var motion := InputEventMouseMotion.new()
+	motion.position = mouse.position + Vector2(-58.0, 16.0)
+	motion.relative = Vector2(-58.0, 16.0)
+	root.push_input(motion, true)
+	await _steps(8)
+	_check(craft.player_position.x < before_mouse.x - 46.0, "mouse drag moves the ship through the game viewport")
+	mouse.pressed = false
+	mouse.position = motion.position
+	root.push_input(mouse, true)
 	Input.action_press("move_up")
 	await _steps(62)
 	Input.action_release("move_up")
@@ -224,7 +255,7 @@ func _test_controls() -> void:
 
 func _pilot_to_result() -> void:
 	var craft: Flight = game.flight
-	for tick in 2_200:
+	for tick in 3_300:
 		if game.phase == "revive":
 			_release_actions()
 			await _click("ReviveAdButton")
@@ -328,7 +359,7 @@ func _capture_action() -> void:
 		craft._damage_boss(Commander.MAX_HP, craft.boss.position)
 	await _step_to(craft, craft._seconds + 0.21)
 	await _capture("09-asterion-eksplozja")
-	await _step_to(craft, craft._seconds + 2.1)
+	await _step_to(craft, craft._seconds + 2.65)
 	_check(game.phase == "result" and game._result.boss_defeated, "live commander destruction reaches the actual result screen")
 	await _capture("10-wynik")
 

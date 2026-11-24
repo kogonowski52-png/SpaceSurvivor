@@ -10,11 +10,12 @@ const Campaign := preload("res://vertical/campaign.gd")
 const Squadron := preload("res://vertical/squadron.gd")
 const Ordnance := preload("res://vertical/ordnance.gd")
 const Commander := preload("res://vertical/commander.gd")
-const BattleFX := preload("res://combat/battle_fx.gd")
+const FlightFX := preload("res://vertical/flight_fx.gd")
+const PilotArt := preload("res://vertical/flight_art.gd")
+const FlightSky := preload("res://vertical/flight_sky.gd")
 const Catalog := preload("res://data/progression_catalog.gd")
 const Store := preload("res://data/store/commerce_catalog.gd")
-const BOSS_ART := preload("res://assets/art/vertical/asterion.webp")
-const PICKUP_ART := preload("res://assets/art/modules/reactor.webp")
+const BOSS_ART := preload("res://assets/art/premium/enemies/asterion.webp")
 const DRONE_ART := preload("res://assets/art/drone.png")
 const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
 
@@ -28,6 +29,12 @@ const MAX_SHOTS := 196
 const MAX_FRIENDLY := 88
 const IDLE := -1
 const MOUSE := -2
+const BOSS_BREAK_SPAN := 2.48
+const BREAK_PULSES := [
+	[0.28, Vector2(-103, 23), 108.0], [0.56, Vector2(104, 23), 122.0],
+	[0.90, Vector2(-61, -61), 93.0], [1.18, Vector2(72, -51), 101.0],
+	[1.49, Vector2(0, 15), 230.0],
+]
 
 class Pickup:
 	var id := "core"
@@ -36,7 +43,7 @@ class Pickup:
 
 var player_position := Vector2(270.0, 813.0)
 var gear := Ordnance.new()
-var fx := BattleFX.new()
+var fx := FlightFX.new()
 var boss: Commander
 var boss_phases_fired := 0
 var revive_offer_enabled := true
@@ -46,19 +53,21 @@ var _stage_id := "echo"
 var _stage: Dictionary = Campaign.STAGES.echo
 var _threat := 1
 var _duration := Campaign.DEFAULT_TIME_LIMIT
-var _ship: Dictionary = Catalog.SHIPS.peregrine
+var _ship_id := "peregrine"
+var _ship_art: Dictionary = PilotArt.HULLS.peregrine
 var _stats: Dictionary = Catalog.BASE_STATS
 var _skin: Dictionary = {}
 var _hull: Texture2D
 var _hull_frame := Rect2()
-var _sky: Texture2D
+var _sky := FlightSky.new()
 var _boss_frame := Rect2()
-var _stars := PackedVector2Array()
 var _fighter_frames: Array[Rect2] = []
 var _pointer := IDLE
 var _pointer_offset := Vector2.ZERO
 var _pointer_goal := player_position
 var _bank := 0.0
+var _thrust := 0.0
+var _charge_fx := 0.0
 var _seconds := 0.0
 var _hp := 100.0
 var _max_hp := 100.0
@@ -70,7 +79,8 @@ var _report_in := 0.0
 var _wave_index := -1
 var _wave_age := 0.0
 var _waves_cleared := 0
-var _next_in := 2.3
+var _next_in := 0.28
+var _intro_core_sent := false
 var _plan: Array[Dictionary] = []
 var _spawn_index := 0
 var _enemies: Array[Squadron.Fighter] = []
@@ -100,7 +110,10 @@ func configure(stage_id: String, sortie: Dictionary) -> void:
 	_stage = Campaign.STAGES[stage_id]
 	_threat = clampi(int(_stage.threat), 1, 6)
 	_duration = Campaign.time_limit(_stage)
-	_ship = Catalog.SHIPS.get(sortie.get("ship_id", "peregrine"), Catalog.SHIPS.peregrine)
+	_ship_id = str(sortie.get("ship_id", "peregrine"))
+	if not PilotArt.HULLS.has(_ship_id):
+		_ship_id = "peregrine"
+	_ship_art = PilotArt.HULLS[_ship_id]
 	_stats = sortie.get("stats", Catalog.BASE_STATS)
 	_skin = Store.SKINS.get(sortie.get("skin_id", ""), {})
 	gear.reset(_stage.power, _stats)
@@ -110,18 +123,14 @@ func configure(stage_id: String, sortie: Dictionary) -> void:
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	_hull = load(_ship.sprite)
-	_hull_frame = _texture_frame(_hull, 86.0)
-	_sky = load(_stage.sky)
-	_boss_frame = _texture_frame(BOSS_ART, 324.0)
+	_hull = PilotArt.hull(_ship_id)
+	_hull_frame = PilotArt.frame(_hull, _ship_art.size)
+	_sky.configure(_stage)
+	_boss_frame = PilotArt.frame(BOSS_ART, 403.0)
 	for index in Squadron.ART.size():
-		_fighter_frames.append(_texture_frame(Squadron.ART[index], Squadron.SIZE[index]))
+		_fighter_frames.append(PilotArt.frame(Squadron.ART[index], Squadron.SIZE[index]))
 	fx.prepare()
 	fx._rng.seed = 210_707 + _threat
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 726_571
-	for index in 49:
-		_stars.append(Vector2(rng.randf_range(0, SIZE.x), rng.randf_range(0, 1_265.0)))
 	get_viewport().size_changed.connect(_frame_view)
 	_frame_view()
 	publish_telemetry()
@@ -207,6 +216,7 @@ func _physics_process(delta: float) -> void:
 	_hull_flash = maxf(0.0, _hull_flash - delta)
 	muzzle_flash = maxf(0.0, muzzle_flash - delta)
 	_power_notice_left = maxf(0.0, _power_notice_left - delta)
+	_charge_fx = maxf(0.0, _charge_fx - delta)
 	_move_pilot(delta)
 	fx.step(delta)
 	_step_director(delta)
@@ -236,15 +246,26 @@ func _move_pilot(delta: float) -> void:
 	player_position = player_position.clamp(FLIGHT_MIN, FLIGHT_MAX)
 	var lean := clampf((player_position.x - prior.x) / maxf(1.0, delta * 480.0), -1.0, 1.0) * 0.17
 	_bank = lerpf(_bank, lean, minf(1.0, delta * 14.0))
+	_thrust = lerpf(_thrust, minf(1.0, player_position.distance_to(prior) / maxf(1.0, delta * 435.0)), minf(1.0, delta * 8.0))
+
+
+func weapon_socket(lane: float) -> Vector2:
+	var socket := Vector2(lane * _hull_frame.size.x * 0.115, -_hull_frame.size.y * 0.42 + absf(lane) * 7.7)
+	return player_position + socket.rotated(_bank)
 
 
 func _step_director(delta: float) -> void:
 	if _boss_defeated:
 		_boss_break -= delta
-		if _explosion_step == 0 and _boss_break < 1.06:
+		if _explosion_step < BREAK_PULSES.size() and BOSS_BREAK_SPAN - _boss_break >= float(BREAK_PULSES[_explosion_step][0]):
+			var pulse: Array = BREAK_PULSES[_explosion_step]
 			_explosion_step += 1
-			fx.burst(_wreck_point + Vector2(-82, -18), Color("#ffaf6e"), 19, 168.0)
-			fx.burst(_wreck_point + Vector2(86, -16), Color("#ffcaa0"), 19, 184.0)
+			var impact: Vector2 = _wreck_point + pulse[1]
+			fx.blast(impact, float(pulse[2]), false, 0.71)
+			fx.burst(impact, Color("#ffc28e"), 22, 228.0)
+			fx.ring(impact, Color("#ffcead"), float(pulse[2]) * 0.86, 0.72)
+			if _explosion_step == BREAK_PULSES.size():
+				sound_requested.emit("boss_break")
 		if _boss_break <= 0.0:
 			_finish(true)
 		return
@@ -253,6 +274,9 @@ func _step_director(delta: float) -> void:
 		return
 	if boss != null:
 		return
+	if _stage_id == "echo" and not _intro_core_sent and (_kills > 0 or _seconds >= 3.9):
+		_intro_core_sent = true
+		_spawn_pickup("core", Vector2(clampf(player_position.x, 79.0, 461.0), 674.0))
 	if _next_in > 0.0:
 		_next_in -= delta
 		if _next_in > 0.0:
@@ -281,9 +305,9 @@ func _step_director(delta: float) -> void:
 	if _spawn_index == _plan.size() and _enemies.is_empty():
 		_waves_cleared += 1
 		var drop: String = _stage.waves[_wave_index].get("drop", "")
-		_next_in = 3.6 if not drop.is_empty() else 2.1
+		_next_in = 0.85 if not drop.is_empty() else 0.67
 		if not drop.is_empty():
-			_spawn_pickup(drop, Vector2(clampf(player_position.x, 108.0, 432.0), 584.0))
+			_spawn_pickup(drop, Vector2(clampf(player_position.x, 85.0, 455.0), 602.0))
 		publish_telemetry()
 
 
@@ -302,16 +326,16 @@ func _step_enemies(delta: float) -> void:
 		enemy.fire_in -= delta
 		if enemy.fire_in > 0.0 or enemy.position.y < 81.0 or enemy.position.y > 521.0:
 			continue
-		enemy.fire_in = Squadron.SHOT_INTERVAL[enemy.kind] * (1.12 - _threat * 0.11)
+		enemy.fire_in = Squadron.SHOT_INTERVAL[enemy.kind] * (1.20 - _threat * 0.112)
 		var aim := (player_position - enemy.position).normalized()
 		var muzzle := enemy.position + Vector2(0.0, 17.0)
 		if enemy.kind == Squadron.Kind.SCOUT:
-			hostile_round(muzzle, Vector2.DOWN, 184.0 + _threat * 16.0, 10.0)
+			hostile_round(muzzle, Vector2.DOWN, 193.0 + _threat * 14.0, 8.0 + _threat)
 		elif enemy.kind == Squadron.Kind.RAZOR:
-			hostile_round(muzzle, aim, 248.0, 12.0)
+			hostile_round(muzzle, aim, 238.0 + _threat * 7.0, 10.0 + _threat)
 		else:
 			for lane in 3:
-				hostile_round(muzzle, aim.rotated((lane - 1.0) * 0.25), 210.0, 13.0)
+				hostile_round(muzzle + Vector2((lane - 1.0) * 10.0, 0.0), aim.rotated((lane - 1.0) * 0.24), 218.0, 11.0 + _threat)
 
 
 func _step_escort(delta: float) -> void:
@@ -360,11 +384,13 @@ func _collect(id: String) -> void:
 		_hp = minf(_max_hp, _hp + _max_hp * 0.32)
 	else:
 		gear.power_up(id)
+		_charge_fx = 0.66
 	_power_notice = spec.title
 	_power_notice_left = 2.25
 	_power_tone = spec.tone
 	_score += 150
 	fx.ring(player_position, spec.tone, 88.0, 0.62)
+	fx.ring(player_position, spec.tone.lightened(0.3), 55.0, 0.34)
 	fx.burst(player_position + Vector2(0, -28), spec.tone, 15, 170.0, Vector2.UP)
 	sound_requested.emit("pickup" if id == "repair" else "upgrade")
 	publish_telemetry()
@@ -456,6 +482,7 @@ func _hit_target(shot: Ordnance.Shot, from: Vector2) -> bool:
 	else:
 		_damage_boss(shot.damage, contact)
 	if shot.kind == Ordnance.Kind.PLASMA:
+		fx.blast(contact, 49.0, true, 0.28)
 		fx.ring(contact, Color("#d492ff"), 38.0, 0.28)
 		for index in range(_enemies.size() - 1, -1, -1):
 			if _enemies[index].position.distance_squared_to(contact) < 39.0 * 39.0:
@@ -490,6 +517,8 @@ func _damage_enemy(index: int, amount: float, contact: Vector2) -> void:
 		_score += roundi((100.0 + enemy.kind * 63.0) * float(_stats.get("xp_multiplier", 1.0)))
 		_kills += 1
 		fx.burst(enemy.position, tone, 12 + enemy.kind * 4, 151.0)
+		fx.shatter(Squadron.ART[enemy.kind], enemy.position, _fighter_frames[enemy.kind], enemy.heading)
+		fx.blast(enemy.position, 42.0 + 14.0 * enemy.kind)
 		fx.ring(enemy.position, tone, 45.0 + enemy.kind * 7.0, 0.39)
 		_recycle_enemy(index)
 		sound_requested.emit("kill")
@@ -510,10 +539,12 @@ func _damage_boss(amount: float, contact: Vector2) -> void:
 	boss_phases_fired = boss.observed_phases
 	boss = null
 	_boss_defeated = true
-	_boss_break = 1.62
+	_boss_break = BOSS_BREAK_SPAN
 	_score += 5_000
 	_kills += 1
+	gear.beam_left = 0.0
 	fx.capital_break(BOSS_ART, _wreck_point, 0.0, _boss_frame, Color("#ffbd8b"))
+	fx.blast(_wreck_point + Vector2(0.0, -22.0), 143.0, false, 0.66)
 	fx.ring(_wreck_point, Color("#fff1b9"), 215.0, 1.1)
 	sound_requested.emit("boss_break")
 	publish_telemetry()
@@ -573,11 +604,13 @@ func _finish(won: bool, timed_out := false) -> void:
 func publish_telemetry() -> void:
 	_report_in = 0.08
 	var waves: Array = _stage.waves
-	var briefing := "PRZECIĄGNIJ STATEK · OGIEŃ AUTOMATYCZNY" if _stage_id == "echo" and _wave_index < 0 else ""
-	if _wave_index >= 0 and _wave_index < waves.size():
-		briefing = str(waves[_wave_index].name).to_upper() if _wave_age < 2.8 else ""
-	if _next_in > 0.0 and _wave_index >= 0 and not _pickups.is_empty():
-		briefing = "PRZECHWYĆ ŁADUNEK"
+	var briefing := ""
+	if _wave_index >= 0 and _wave_index < waves.size() and _wave_age < 2.22:
+		briefing = str(waves[_wave_index].name).to_upper()
+	if _stage_id == "echo" and _seconds < 2.8:
+		briefing = "PRZECIĄGNIJ STATEK"
+	if not _pickups.is_empty() and _seconds < 9.0:
+		briefing = "ZBIERZ RDZEŃ OGNIA"
 	if _boss_defeated:
 		briefing = "ASTERION ZNISZCZONY"
 	telemetry.emit({"title": _stage.title, "track": _threat, "waves": waves.size(), "wave": mini(_wave_index + 1, waves.size()),
@@ -587,35 +620,29 @@ func publish_telemetry() -> void:
 		"boss_phase": boss.phase if boss != null else 0, "danger": boss.warning() if boss != null else ""})
 
 
-func _texture_frame(texture: Texture2D, longest: float) -> Rect2:
-	var dimensions := texture.get_size()
-	var scaled := dimensions * longest / maxf(dimensions.x, dimensions.y)
-	return Rect2(-scaled * 0.5, scaled)
-
-
 func _draw() -> void:
 	if _hull == null:
 		return
-	_draw_sky()
+	var view_size := get_viewport_rect().size / maxf(scale.x, 0.01)
+	var energy := maxf(_charge_fx * 0.76, minf(0.80, _boss_break * 0.43))
+	_sky.draw(self, Rect2((SIZE - view_size) * 0.5, view_size), _seconds, player_position.x, energy)
 	var visible := PLAY_AREA.grow(24.0)
 	fx.render_capital_breaks(self, Vector2.ZERO, visible, player_position)
-	fx.render(self, Vector2.ZERO, visible, player_position)
 	for enemy in _enemies:
 		if visible.has_point(enemy.position):
 			_draw_fighter(enemy)
 	if boss != null:
-		draw_set_transform(boss.position)
-		var tint := Color.WHITE.lerp(Color("#ffe0b5"), boss.flash * 5.0)
-		draw_texture_rect(BOSS_ART, _boss_frame, false, tint)
-		draw_set_transform(Vector2.ZERO)
+		boss.draw_hull(self, BOSS_ART, _boss_frame, fx)
+	fx.draw_flares(self, visible, player_position)
+	fx.render(self, Vector2.ZERO, visible, player_position)
 	if gear.beam_left > 0.0:
-		var emitter := gear.beam_start(player_position)
-		var fade := minf(1.0, gear.beam_left / 0.09)
-		fx.laser(self, emitter, Vector2(emitter.x, 12.0), gear.beam_age, fade)
+		var emitter := weapon_socket(0.0)
+		var fade := minf(minf(1.0, gear.beam_age / 0.04), gear.beam_left / 0.09)
+		fx.laser(self, emitter, Vector2(emitter.x, 13.0), gear.beam_age, fade)
 		if gear.contact_left > 0.0:
-			fx.laser_contact(self, gear.beam_contact, 32.0, minf(1.0, gear.contact_left / 0.06))
+			fx.laser_contact(self, gear.beam_contact, 34.0 + gear.rank * 1.4, minf(1.0, gear.contact_left / 0.06))
 	for shot in _shots:
-		if visible.has_point(shot.position):
+		if visible.has_point(shot.position) and (_boss_break <= 0.0 or not shot.hostile()):
 			_draw_round(shot)
 	for item in _pickups:
 		_draw_pickup(item)
@@ -625,74 +652,55 @@ func _draw() -> void:
 		_draw_pilot()
 
 
-func _draw_sky() -> void:
-	var ratio := maxf(scale.x, 0.01)
-	var inner := get_viewport_rect().size / ratio
-	var gutter := (inner - SIZE) * 0.5
-	var view := Rect2(-gutter, inner)
-	draw_rect(view, Color("#040814"))
-	var scroll := fposmod(_seconds * 23.0, SIZE.y * 2.0)
-	for index in range(-3, 2):
-		var top := scroll + index * SIZE.y
-		if top > view.end.y or top + SIZE.y < view.position.y:
-			continue
-		var reflected := posmod(index, 2) == 1
-		var flip := -1.0 if reflected else 1.0
-		draw_set_transform(Vector2(0.0, top + SIZE.y if reflected else top), 0.0, Vector2(1.0, flip))
-		draw_texture_rect(_sky, PLAY_AREA, false, Color("#a1b4cf"))
-	draw_set_transform(Vector2.ZERO)
-	for index in _stars.size():
-		var point := _stars[index]
-		point.y = fposmod(point.y + _seconds * (99.0 if index % 3 == 0 else 45.0), 1_265.0) - 152.0
-		var sight := 0.24 + 0.09 * sin(index * 2.6 + _seconds * 2.0)
-		if index % 3 == 0:
-			draw_line(point, point - Vector2(0, 9), Color("#8ac7ef", sight), 1.15, true)
-		else:
-			draw_circle(point, 1.25, Color("#d8eeff", sight + 0.17), true, -1.0, true)
-	if gutter.y > 0.5:
-		draw_rect(Rect2(0, -gutter.y, SIZE.x, gutter.y), Color("#05091278"))
-		draw_rect(Rect2(0, SIZE.y, SIZE.x, gutter.y), Color("#05091278"))
-		draw_line(Vector2.ZERO, Vector2(SIZE.x, 0), Color(_stage.tone, 0.22), 1.0)
-		draw_line(Vector2(0, SIZE.y), SIZE, Color(_stage.tone, 0.22), 1.0)
-
-
 func _draw_fighter(enemy: Squadron.Fighter) -> void:
 	var frame := _fighter_frames[enemy.kind]
 	var tone: Color = Squadron.COLORS[enemy.kind]
 	draw_set_transform(enemy.position, enemy.heading)
-	fx.small_engine(self, Vector2(0, frame.size.y * 0.42), frame.size.x * 0.085, 17.0 + enemy.kind * 7.0, tone, _seconds + enemy.offset)
-	var flash := Color.WHITE.lerp(tone.lightened(0.35), enemy.flash * 6.0)
-	draw_texture_rect(Squadron.ART[enemy.kind], frame, false, flash)
+	fx.small_engine(self, Vector2(0.0, frame.size.y * 0.45), frame.size.x * 0.095, 14.0 + enemy.kind * 3.0, tone, _seconds + enemy.offset)
+	draw_texture_rect(Squadron.ART[enemy.kind], frame, false, Color.WHITE.lerp(tone.lightened(0.46), enemy.flash * 5.5))
 	draw_set_transform(Vector2.ZERO)
+	if enemy.fire_in < 0.34 and enemy.age > enemy.entry and enemy.position.y < 500.0:
+		var charge := clampf(1.0 - enemy.fire_in / 0.34, 0.0, 1.0)
+		fx.laser_contact(self, enemy.position + Vector2(0.0, 19.0), 11.0 + charge * 6.0, charge * 0.72)
 
 
 func _draw_round(shot: Ordnance.Shot) -> void:
-	var tail := 28.0
+	var direction := shot.velocity.angle()
+	if shot.kind == Ordnance.Kind.ROCKET:
+		fx.missile(self, shot.position, direction, shot.tint, _seconds)
+		return
+	var tail := 32.0
 	var width := 9.0
-	match shot.kind:
-		Ordnance.Kind.PLASMA:
-			tail = 24.0
-			width = 17.5
-		Ordnance.Kind.ROCKET:
-			tail = 43.0
-			width = 12.0
-		Ordnance.Kind.HOSTILE, Ordnance.Kind.ORBIT:
-			tail = 20.0
-			width = 12.0 if shot.kind == Ordnance.Kind.ORBIT else 10.0
+	if shot.kind == Ordnance.Kind.PLASMA:
+		tail = 21.0
+		width = 18.0
+	elif shot.hostile():
+		tail = 18.0
+		width = 13.0 if shot.kind == Ordnance.Kind.ORBIT else 11.0
 	var tint := shot.tint
-	if not shot.hostile() and shot.position.distance_squared_to(player_position) < 65.0 * 65.0:
-		tint.a = 0.72
-	fx.projectile(self, shot.position, shot.velocity.angle(), tail, width, tint, shot.hostile())
+	if not shot.hostile() and shot.position.distance_squared_to(player_position) < 62.0 * 62.0:
+		tint.a = 0.76
+	fx.projectile(self, shot.position, direction, tail, width, tint, shot.hostile())
+	if shot.kind == Ordnance.Kind.PLASMA:
+		var nucleus := 7.4 + sin(_seconds * 16.0 + shot.position.y * 0.043) * 1.3
+		fx.laser_contact(self, shot.position, nucleus * 2.0, tint.a * 0.62)
+	elif shot.hostile():
+		draw_line(shot.position - shot.velocity.normalized() * 5.6, shot.position, Color("#ffc083"), 2.2, true)
 
 
 func _draw_pickup(item: Pickup) -> void:
 	var info: Dictionary = Ordnance.DROPS[item.id]
 	var tone: Color = info.tone
 	var pulse := sin(_seconds * 5.5 + item.age)
-	var center := item.position + Vector2(0, pulse * 3.0)
-	draw_arc(center, 31.0, _seconds * 1.7, _seconds * 1.7 + 3.9, 24, Color(tone, 0.62 + pulse * 0.17), 1.8, true)
-	draw_texture_rect(PICKUP_ART, Rect2(center - Vector2(22, 23), Vector2(44, 46)), false, tone.lightened(0.30))
-	draw_string(Body, center + Vector2(-91.0, -39.0), info.title, HORIZONTAL_ALIGNMENT_CENTER, 182.0, 15, tone)
+	var center := item.position + Vector2(0.0, pulse * 3.0)
+	var enter := smoothstep(0.0, 0.32, item.age)
+	var alpha := enter * (1.0 - smoothstep(8.9, 9.5, item.age))
+	var texture: Texture2D = info.art
+	var frame := PilotArt.frame(texture, (47.0 + pulse * 1.7) * lerpf(0.63, 1.0, enter))
+	draw_arc(center, 33.0, _seconds * 1.7, _seconds * 1.7 + 3.4, 19, Color(tone, alpha * 0.48), 1.5, true)
+	draw_arc(center, 33.0, _seconds * 1.7 + PI * 1.3, _seconds * 1.7 + PI * 1.82, 8, Color(tone, alpha * 0.64), 1.5, true)
+	draw_texture_rect(texture, Rect2(center + frame.position, frame.size), false, Color(1.0, 1.0, 1.0, alpha))
+	draw_string(Body, center + Vector2(-91.0, -39.0), info.title, HORIZONTAL_ALIGNMENT_CENTER, 182.0, 16, Color(tone, alpha))
 
 
 func _draw_pilot() -> void:
@@ -703,15 +711,19 @@ func _draw_pilot() -> void:
 			var pos := player_position + Vector2(side * 52.0, 15.0 + sin(_seconds * 4.2 + side) * 4.0)
 			draw_texture_rect(DRONE_ART, Rect2(pos - Vector2(13, 12), Vector2(26, 24)), false)
 	draw_set_transform(player_position, _bank)
-	var exhaust: Vector2 = _ship.exhaust
-	var tone: Color = _ship.accent if _skin.is_empty() else _skin.accent
-	var plume := gear.accent().lerp(tone, 0.48)
-	for side: int in [-1, 1]:
-		var nozzle := _hull_frame.size * Vector2(side * exhaust.x, exhaust.y)
-		fx.small_engine(self, nozzle, 5.8, 26.0 + gear.rank * 2.6, plume, _seconds)
+	var tone: Color = _ship_art.energy if _skin.is_empty() else _skin.accent
+	var plume := gear.accent().lerp(tone, 0.73)
+	for anchor: Vector2 in _ship_art.ports:
+		var nozzle := _hull_frame.size * anchor
+		fx.small_engine(self, nozzle, 5.6, 21.0 + _thrust * 16.0 + gear.rank * 1.9 + _charge_fx * 22.0, plume, _seconds + anchor.x)
 	var livery: Color = _skin.get("tint", Color.WHITE)
-	livery = livery.lerp(Color("#ffb4a1"), _hull_flash * 1.25)
-	draw_texture_rect(_hull, _hull_frame, false, livery)
+	livery = livery.lerp(Color("#ffad9b"), _hull_flash * 1.36)
+	var recoil := muzzle_flash * (12.0 + gear.rank * 2.5)
+	draw_texture_rect(_hull, Rect2(_hull_frame.position + Vector2(0.0, recoil), _hull_frame.size), false, livery)
 	draw_set_transform(Vector2.ZERO)
 	if muzzle_flash > 0.0:
-		fx.laser_contact(self, player_position + Vector2(0.0, -36.0), 18.0, muzzle_flash * 7.2)
+		var count: int = Ordnance.EMITTERS[gear.rank - 1]
+		var opacity := minf(0.67, muzzle_flash * (7.0 if count > 3 else 10.0))
+		for index in count:
+			var lane := index - (count - 1) * 0.5
+			fx.laser_contact(self, weapon_socket(lane), 11.0 + gear.rank * 1.4, opacity)

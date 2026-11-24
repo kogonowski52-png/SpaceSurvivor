@@ -13,11 +13,11 @@ const MODES := {
 	"beam": {"title": "Energy Beam", "cycle": 0.60, "sound": "laser"},
 }
 const DROPS := {
-	"core": {"title": "RDZEŃ OGNIA", "tone": Color("#74e9f4")},
-	"plasma": {"title": "PLASMA SPREAD", "tone": Color("#e2a0ff")},
-	"rockets": {"title": "HOMING ROCKETS", "tone": Color("#ffc194")},
-	"beam": {"title": "ENERGY BEAM", "tone": Color("#9bafff")},
-	"repair": {"title": "NAPRAWA KADŁUBA", "tone": Color("#92e8c7")},
+	"core": {"art": preload("res://assets/art/premium/power/core.webp"), "title": "RDZEŃ OGNIA", "tone": Color("#74e9f4")},
+	"plasma": {"art": preload("res://assets/art/premium/power/plasma.webp"), "title": "PLASMA SPREAD", "tone": Color("#e2a0ff")},
+	"rockets": {"art": preload("res://assets/art/premium/power/rockets.webp"), "title": "HOMING ROCKETS", "tone": Color("#ffc194")},
+	"beam": {"art": preload("res://assets/art/premium/power/beam.webp"), "title": "ENERGY BEAM", "tone": Color("#9bafff")},
+	"repair": {"art": preload("res://assets/art/premium/power/repair.webp"), "title": "NAPRAWA KADŁUBA", "tone": Color("#92e8c7")},
 }
 
 class Shot:
@@ -70,7 +70,7 @@ func step(field: Node2D, delta: float) -> void:
 	contact_left = maxf(0.0, contact_left - delta)
 	if _cycle_left <= 0.0:
 		var spec: Dictionary = MODES[mode]
-		_cycle_left += float(spec.cycle) * cycle_scale
+		_cycle_left += float(spec.cycle) * cycle_scale * (1.0 - 0.021 * (rank - 1))
 		fire(field)
 		field.sound_requested.emit(spec.sound)
 	if beam_left > 0.0:
@@ -78,7 +78,7 @@ func step(field: Node2D, delta: float) -> void:
 		_beam_tick -= delta
 		if _beam_tick <= 0.0:
 			_beam_tick += 0.10
-			var touch: Vector2 = field.beam_damage(beam_start(field.player_position), (11.0 + rank * 2.3) * damage_scale)
+			var touch: Vector2 = field.beam_damage(field.weapon_socket(0.0), (11.0 + rank * 2.3) * damage_scale)
 			if touch != Vector2.ZERO:
 				beam_contact = touch
 				contact_left = 0.10
@@ -90,7 +90,7 @@ func fire(field: Node2D) -> void:
 	var kind := Kind.PULSE
 	var speed := 765.0
 	var spread := 0.24 if rank >= 4 else 0.10
-	var damage := (13.5 + 0.72 * rank) * damage_scale
+	var damage := (13.0 + 1.18 * rank) * damage_scale
 	match mode:
 		"plasma":
 			kind = Kind.PLASMA
@@ -111,7 +111,7 @@ func fire(field: Node2D) -> void:
 		if mode == "beam" and is_zero_approx(lane):
 			continue
 		var angle := lane / maxf(1.0, (count - 1) * 0.5) * spread
-		var origin: Vector2 = field.player_position + Vector2(lane * 10.5, -27.0 + absf(lane) * 2.5)
+		var origin: Vector2 = field.weapon_socket(lane)
 		var tint := accent()
 		if kind == Kind.PLASMA:
 			tint = Color("#db8bfa").lerp(tint, 0.25)
@@ -120,18 +120,14 @@ func fire(field: Node2D) -> void:
 		field.spawn_shot(origin, Vector2.UP.rotated(angle) * speed, kind, damage, 2.6, 0.0, tint)
 	if rank >= 6 and _volley % 3 == 0:
 		for side: int in [-1, 1]:
-			field.spawn_shot(field.player_position + Vector2(side * 33.0, -7.0), Vector2.UP.rotated(side * 0.47) * 430.0,
+			field.spawn_shot(field.weapon_socket(side * 3.55) + Vector2(0.0, 6.0), Vector2.UP.rotated(side * 0.47) * 430.0,
 				Kind.ROCKET, 21.0 * damage_scale, 2.7, 0.0, Color("#ffc194"))
 	if rank == 7 and _volley % 4 == 0 and mode != "beam":
 		start_beam(0.29)
-	field.muzzle_flash = 0.09
+	field.muzzle_flash = 0.075 + rank * 0.003
 
 
 func start_beam(duration: float) -> void:
 	beam_left = duration
 	beam_age = 0.0
 	_beam_tick = 0.0
-
-
-func beam_start(origin: Vector2) -> Vector2:
-	return origin + Vector2(0.0, -31.0)
