@@ -18,6 +18,8 @@ func _ready() -> void:
 	_bridge.connect("billing_result", _on_billing_result)
 	_bridge.connect("billing_catalog", _on_catalog)
 	_bridge.connect("billing_inventory_changed", _on_inventory)
+	if not show_paid_catalog():
+		return
 	var skus: Array[String] = []
 	for offer: Dictionary in Offers.OFFERS.values():
 		if offer.has("sku") and (not offer.get("preview", false) or preview_available()):
@@ -30,7 +32,7 @@ func catalog() -> Dictionary:
 
 
 func refresh_catalog() -> void:
-	if _bridge != null:
+	if show_paid_catalog():
 		_bridge.queryProducts()
 
 
@@ -44,6 +46,10 @@ func checkout_available() -> bool:
 
 func preview_available() -> bool:
 	return _bridge != null and _bridge.licenseDraftCatalogEnabled()
+
+
+func show_paid_catalog() -> bool:
+	return _bridge != null and _bridge.licenseCheckoutEnabled()
 
 
 func can_connect_account() -> bool:

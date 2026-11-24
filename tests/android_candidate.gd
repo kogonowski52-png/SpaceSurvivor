@@ -135,7 +135,7 @@ func _test_reward_and_export() -> void:
 	await _click("ExportDiagnosticsButton")
 	var raw := FileAccess.get_file_as_string(game.diagnostic_path)
 	var exported: Variant = JSON.parse_string(raw)
-	_check(exported is Dictionary and exported.version == "1.2.0" and exported.ad_events.back().state == "granted"
+	_check(exported is Dictionary and exported.version == ProjectSettings.get_setting("application/config/version") and exported.ad_events.back().state == "granted"
 		and not private_marker in raw and not request in raw and not "token" in raw, "diagnostic export has allowlisted states and no private identifiers")
 	await _click("SettingsCancel")
 

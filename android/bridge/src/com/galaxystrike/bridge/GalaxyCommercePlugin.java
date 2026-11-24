@@ -128,7 +128,7 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
     @UsedByGodot
     public int diagnosticPssKib() {
         Activity activity = getActivity();
-        if (activity == null || !"test".equals(playMode())) return 0;
+        if (activity == null || !debuggable(activity)) return 0;
         return (int) Math.min(android.os.Debug.getPss(), Integer.MAX_VALUE);
     }
 
@@ -139,7 +139,7 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
     @UsedByGodot
     public void shareDiagnostics(String report) {
         Activity activity = getActivity();
-        if (activity == null || !"test".equals(playMode()) || report.length() > 16384) return;
+        if (activity == null || !debuggable(activity) || report.length() > 16384) return;
         activity.runOnUiThread(() -> {
             if (activity.isFinishing()) return;
             Intent share = new Intent(Intent.ACTION_SEND);

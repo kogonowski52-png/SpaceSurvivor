@@ -142,7 +142,8 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 		"featured": "Oferty specjalne", "crystals": "Portfel Crystals",
 		"skins": "Flota i poszycia", "gear": "Wyposażenie", "season": "Przepustka Helion", "free": "Darmowe nagrody",
 	}
-	if current_tab != "season":
+	var show_helion: bool = _offer_visible("season_helion", Offers.OFFERS.season_helion)
+	if current_tab != "season" or not show_helion:
 		_label(body, subtitle[current_tab], 27, Palette.TEXT, true)
 	if data.play_test and data.purchase_allowed and current_tab in ["featured", "crystals", "season"]:
 		_label(body, "Przed zatwierdzeniem wybierz kartę testową Google Play.", 17, Palette.AMBER)
@@ -155,12 +156,14 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 		_featured_tools(body)
 	for id: String in Offers.OFFERS:
 		var offer: Dictionary = Offers.OFFERS[id]
-		if offer.tab == current_tab:
+		if offer.tab == current_tab and _offer_visible(id, offer):
 			_product(body, id, offer)
 	match current_tab:
 		"featured":
 			if _data.bonus:
 				_reward_card(body, "bonus", "Bonus dzienny", Palette.AMBER)
+			elif not _data.show_paid_catalog:
+				_button(body, "StoreFreeRewardsButton", "PRZEJDŹ DO NAGRÓD", _switch_tab.bind("free"), Palette.CYAN)
 			if not show_pending:
 				_featured_tools(body)
 		"season":
@@ -179,6 +182,12 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 	_scan_offers.call_deferred()
 	if not pending_reveal.is_empty():
 		_reveal_reward(pending_reveal)
+
+
+func _offer_visible(id: String, offer: Dictionary) -> bool:
+	if offer.kind != "play" or Offers.owns_offer(_data.profile, id) or id in _data.pending:
+		return true
+	return _data.show_paid_catalog and (not offer.get("preview", false) or _data.preview_catalog)
 
 
 func _wallet_details(parent: Container) -> void:
@@ -376,7 +385,7 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 		var pending: bool = id in _data.pending
 		var price: String = listing.get("price", "")
 		var draft_locked: bool = offer.get("preview", false) and not _data.get("preview_catalog", false)
-		var available: bool = _data.simulation or (_data.purchase_allowed and not price.is_empty() and not draft_locked)
+		var available: bool = _data.simulation or (_data.show_paid_catalog and _data.purchase_allowed and not price.is_empty() and not draft_locked)
 		var purchase_label := "SYMULUJ · %s (TEST)" % offer.test_price if _data.simulation else "KUP · " + price
 		if not _data.simulation and draft_locked:
 			purchase_label = "KATALOG TESTOWY ZABLOKOWANY"
@@ -404,6 +413,8 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 
 
 func _featured_tools(parent: Container) -> void:
+	if not _data.simulation and not _data.can_connect_account:
+		return
 	var tools := _panel(parent, Palette.OUTLINE, 12)
 	var restore_label := "PRZYWRÓĆ ZAKUPY TESTOWE" if _data.simulation else "PRZYWRÓĆ ZAKUPY GOOGLE PLAY"
 	_button(tools, "RestorePurchasesButton", restore_label, _action.bind("restore", ""), Palette.CYAN).disabled = _data.billing_busy

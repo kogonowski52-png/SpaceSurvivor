@@ -36,6 +36,26 @@ if hook not in source:
     gradle.write_text(source.rstrip() + "\n\n" + hook + "\n")
 
 manifest = application.read_text()
+permission_start = '<!-- Galaxy Strike test SDK permissions -->'
+permission_end = '<!-- End Galaxy Strike test SDK permissions -->'
+optional_ad_permissions = (
+    'com.google.android.gms.permission.AD_ID',
+    'android.permission.ACCESS_ADSERVICES_AD_ID',
+    'android.permission.ACCESS_ADSERVICES_ATTRIBUTION',
+    'android.permission.ACCESS_ADSERVICES_TOPICS',
+)
+permission_rules = '\n'.join(
+    f'    <uses-permission android:name="{name}" tools:node="remove" />'
+    for name in optional_ad_permissions
+)
+permissions = f'    {permission_start}\n{permission_rules}\n    {permission_end}'
+if permission_start in manifest:
+    pattern = re.escape(permission_start) + r'.*?' + re.escape(permission_end)
+    manifest = re.sub(pattern, lambda _match: permissions.strip(), manifest, count=1, flags=re.S)
+else:
+    manifest, count = re.subn(r'(<manifest\b[^>]*>)', lambda match: match[0] + '\n' + permissions, manifest, count=1)
+    if count != 1:
+        raise SystemExit("The Android template is missing its manifest root.")
 start = '<!-- Galaxy Strike bridge -->'
 end = '<!-- End Galaxy Strike bridge -->'
 entries = """

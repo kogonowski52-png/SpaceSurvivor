@@ -384,6 +384,7 @@ func _refresh_store() -> void:
 		"pending": pending, "ad_busy": ads.busy(), "billing_busy": billing.busy(),
 		"simulation": billing.adapter.is_test(), "ad_label": ads.label(),
 		"preview_catalog": billing.adapter.preview_available(),
+		"show_paid_catalog": billing.adapter.show_paid_catalog(),
 		"catalog": billing.adapter.catalog(), "checkout_ready": billing.adapter.online_ready(),
 		"purchase_allowed": billing.adapter.checkout_available(), "paid_wallet": billing.account(),
 		"can_connect_account": billing.adapter.can_connect_account(),
@@ -602,14 +603,13 @@ func _set_debug_metrics(enabled: bool) -> void:
 
 
 func _diagnostics_available() -> bool:
-	return OS.is_debug_build() or (OS.has_feature("android") and _play_test)
+	return OS.is_debug_build()
 
 
 func _ad_diagnostic(state: String, placement: String) -> void:
-	if not diagnostics.record_ad(state, placement):
+	if not _diagnostics_available() or not diagnostics.record_ad(state, placement):
 		return
-	if OS.is_debug_build():
-		print("GalaxyStrikeQA ad=%s placement=%s" % [state, placement if not placement.is_empty() else "none"])
+	print("GalaxyStrikeQA ad=%s placement=%s" % [state, placement if not placement.is_empty() else "none"])
 	if is_instance_valid(_settings):
 		_settings.update_diagnostics(diagnostics.status())
 

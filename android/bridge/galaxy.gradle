@@ -16,7 +16,7 @@ def playMode = System.getenv('GALAXY_PLAY_MODE') ?: 'test'
 def licenseCheckout = System.getenv('GALAXY_ENABLE_LICENSE_CHECKOUT') == '1'
 def draftCatalog = System.getenv('GALAXY_ENABLE_DRAFT_CATALOG') == '1'
 if (playMode != 'test') {
-    throw new GradleException('Galaxy Strike 1.2.0 Android candidates use test mode')
+    throw new GradleException('Galaxy Strike release candidates use test mode')
 }
 if (purchaseServer && !(purchaseServer ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[A-Za-z0-9_\/-]+)?\/?/)) {
     throw new GradleException('GALAXY_PURCHASE_SERVER must be an HTTPS origin or base path')

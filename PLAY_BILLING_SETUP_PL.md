@@ -16,7 +16,7 @@ export GALAXY_PLAY_MODE=test
 export GALAXY_ENABLE_LICENSE_CHECKOUT=1
 # Ustaw prywatnie zweryfikowany GALAXY_PURCHASE_SERVER, GALAXY_ADMOB_APP_ID,
 # GALAXY_PRIVACY_POLICY_URL, BUNDLETOOL_JAR i trzy zmienne GODOT_ANDROID_KEYSTORE_RELEASE_*.
-bash tools/build_android_rc.sh play /tmp/GalaxyStrike-1.2.0-internal.aab
+bash tools/build_android_rc.sh play-license /tmp/GalaxyStrike-internal.aab
 ```
 
 Skrypt porównuje certyfikat AAB z aliasem klucza przesyłania i uruchamia `bundletool validate`, jeśli podano narzędzie. Przed przesłaniem porównaj odcisk z Play Console i wybierz wyłącznie kanał wewnętrzny. **Przed zatwierdzeniem każdego testowego zakupu sprawdź, czy okno Google Play pokazuje testową formę płatności. Jeśli pokazuje zwykłą kartę, zamknij okno i sprawdź konto licencyjne.** Serwer odrzuca potwierdzenia bez kontekstu zakupu testowego.

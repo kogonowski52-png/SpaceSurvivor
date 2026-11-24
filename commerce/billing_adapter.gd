@@ -47,6 +47,10 @@ func preview_available() -> bool:
 	return is_test()
 
 
+func show_paid_catalog() -> bool:
+	return is_test()
+
+
 func can_connect_account() -> bool:
 	return false
 

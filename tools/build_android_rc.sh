@@ -6,7 +6,7 @@ engine="${GODOT_BIN:-godot}"
 variant="${1:-}"
 output="${2:-}"
 if [[ -z "$output" || "$#" != 2 ]]; then
-    printf 'Usage: %s debug output.apk | play output.aab\n' "$0" >&2
+    printf 'Usage: %s debug output.apk | play output.aab | play-license output.aab | qa-bundle output-unsigned.aab\n' "$0" >&2
     exit 64
 fi
 output="$(realpath -m -- "$output")"
@@ -18,21 +18,36 @@ case "$variant" in
         preset=Android
         mode=--export-debug
         ;;
-    play)
+    qa-bundle)
+        [[ "$output" == *-unsigned.aab ]]
+        export GALAXY_PLAY_MODE=test
+        unset GALAXY_ENABLE_LICENSE_CHECKOUT GALAXY_ENABLE_DRAFT_CATALOG GALAXY_PURCHASE_SERVER
+        unset GALAXY_ADMOB_APP_ID GALAXY_PRIVACY_POLICY_URL GALAXY_UMP_DEBUG_DEVICE GALAXY_UMP_DEBUG_GEOGRAPHY
+        unset GODOT_ANDROID_KEYSTORE_RELEASE_PATH GODOT_ANDROID_KEYSTORE_RELEASE_USER GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD
+        preset='Android Play Unsigned QA AAB'
+        mode=--export-release
+        ;;
+    play|play-license)
         [[ "$output" == *.aab ]]
         export GALAXY_PLAY_MODE=test
         for setting in GODOT_ANDROID_KEYSTORE_RELEASE_PATH GODOT_ANDROID_KEYSTORE_RELEASE_USER \
-            GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD GALAXY_PURCHASE_SERVER GALAXY_ADMOB_APP_ID GALAXY_PRIVACY_POLICY_URL; do
+            GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD GALAXY_PRIVACY_POLICY_URL; do
             if [[ -z "${!setting:-}" ]]; then
                 printf 'Internal test export requires %s.\n' "$setting" >&2
                 exit 65
             fi
         done
-        if [[ ! -r "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH" ||
-              "$GALAXY_ADMOB_APP_ID" == ca-app-pub-3940256099942544~3347511713 ||
-              "${GALAXY_ENABLE_LICENSE_CHECKOUT:-}" != 1 ]]; then
-            printf 'Configure the owner upload key, AdMob app and explicit license-test flag.\n' >&2
+        if [[ ! -r "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH" ]]; then
+            printf 'Configure the owner upload key.\n' >&2
             exit 65
+        fi
+        if [[ "$variant" == play-license ]]; then
+            if [[ -z "${GALAXY_PURCHASE_SERVER:-}" || "${GALAXY_ENABLE_LICENSE_CHECKOUT:-}" != 1 ]]; then
+                printf 'License-test AAB requires its HTTPS wallet and explicit license-test flag.\n' >&2
+                exit 65
+            fi
+        else
+            unset GALAXY_ENABLE_LICENSE_CHECKOUT GALAXY_ENABLE_DRAFT_CATALOG
         fi
         signing_path="$(realpath -- "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH")"
         if [[ "$signing_path" == "$project/"* ]]; then
@@ -43,7 +58,7 @@ case "$variant" in
         mode=--export-release
         ;;
     *)
-        printf 'Unknown Android variant. Use debug or play.\n' >&2
+        printf 'Unknown Android variant. Use debug, play, play-license or qa-bundle.\n' >&2
         exit 64
         ;;
 esac
@@ -53,7 +68,7 @@ bash tools/prepare_android.sh
 "$engine" --headless --path "$project" --editor --import
 "$engine" --headless --path "$project" "$mode" "$preset" "$output"
 test -s "$output"
-if [[ "$variant" == play ]]; then
+if [[ "$variant" == play || "$variant" == play-license ]]; then
     verification="$(LC_ALL=C "${JAVA_HOME:+$JAVA_HOME/bin/}jarsigner" -verify "$output")"
     if ! rg -Fxq 'jar verified.' <<<"$verification"; then
         printf 'AAB signature verification failed.\n' >&2
@@ -68,7 +83,7 @@ if [[ "$variant" == play ]]; then
         exit 66
     fi
     printf 'AAB signature matches the owner upload key.\n'
-    if [[ -n "${BUNDLETOOL_JAR:-}" ]]; then
-        "${JAVA_HOME:+$JAVA_HOME/bin/}java" -jar "$BUNDLETOOL_JAR" validate --bundle="$output"
-    fi
+fi
+if [[ "$output" == *.aab && -n "${BUNDLETOOL_JAR:-}" ]]; then
+    "${JAVA_HOME:+$JAVA_HOME/bin/}java" -jar "$BUNDLETOOL_JAR" validate --bundle="$output"
 fi
