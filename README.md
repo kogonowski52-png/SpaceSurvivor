@@ -1,6 +1,6 @@
 # Galaxy Strike — Próg Helionu
 
-Pionowa strzelanka kosmiczna 2D w Godot 4.7.2 stable. Kampania obejmuje trzy poziomy. Przechwyć patrol w **Echu pasa**, rozbij spiralę w **Załamaniu Pryzmatu**, a na **Progu Helionu** pokonaj okręt dowodzenia Asterion. Każdy ukończony poziom otwiera następny i pozostaje dostępny do powtórki. [Raport wersji 0.8.0-dev](VERSION_VERTICAL_0_8_0_DEV.md)
+Pionowa strzelanka kosmiczna 2D w Godot 4.7.2 stable. Kampania 0.9.0 obejmuje trzy poziomy po dziesięć fal. Każdy lot korzysta z osobnej kompozycji nieba, planety i zsynchronizowanych formacji. Przechwyć patrol w **Echu pasa**, rozbij spiralę w **Załamaniu Pryzmatu**, a na **Progu Helionu** pokonaj okręt dowodzenia Asterion. Każdy ukończony poziom otwiera następny i pozostaje dostępny do powtórki. [Raport 0.9.0 i pliki do pobrania](VERSION_VERTICAL_0_9_0.md)
 
 ## Sterowanie
 
@@ -28,7 +28,7 @@ godot --headless --fixed-fps 60 --script res://tests/vertical_campaign.gd
 bash tests/run.sh --full-mission
 ```
 
-Pierwszy test prowadzi pilota przez wszystkie trzy loty i sprawdza sterowanie, kolizje, uzbrojenie, wynik oraz zapis. Drugi uruchamia regresje wspólnych systemów oraz pełną dziesięciominutową misję Survivor. Scena `res://main.tscn` nadal uruchamia Survivor w Godot. [Archiwum wersji 0.7.0](https://github.com/kogonowski52-png/SpaceSurvivor/tree/archive/survivor-0.7.0)
+Pierwszy test prowadzi pilota przez wszystkie trzy loty i sprawdza sterowanie, kolizje, uzbrojenie, wynik oraz zapis. Skrypt `tests/premium_visual.gd` uruchamia próby graficzne na aktywnym ekranie, zapis rozgrywki lub pomiar czasu klatek. Drugi uruchamia regresje wspólnych systemów oraz pełną dziesięciominutową misję Survivor. Scena `res://main.tscn` nadal uruchamia Survivor w Godot. [Archiwum wersji 0.7.0](https://github.com/kogonowski52-png/SpaceSurvivor/tree/archive/survivor-0.7.0)
 
 ## Eksport Android
 
