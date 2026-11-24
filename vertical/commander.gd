@@ -228,3 +228,35 @@ func draw_signals(canvas: Node2D) -> void:
 				var aim := Vector2.DOWN.rotated((ray - 1.0) * 0.36 + side * 0.22)
 				var mount := _mount(side)
 				canvas.draw_line(mount + aim * 15.0, mount + aim * 67.0, Color(DANGER, pulse), 2.2, true)
+
+
+func encounter_name() -> String:
+	return NAME
+
+
+func health_capacity() -> float:
+	return MAX_HP
+
+
+func phase_total() -> int:
+	return PHASE_NAMES.size()
+
+
+func phase_tone() -> Color:
+	return PHASE_COLORS[phase - 1]
+
+
+func modules_left() -> int:
+	return -1
+
+
+func aim_point(_from: Vector2) -> Vector2:
+	return position
+
+
+func score_value() -> int:
+	return 5_000
+
+
+func damage_at(amount: float, _contact: Vector2, _field: Node2D) -> bool:
+	return take_damage(amount)

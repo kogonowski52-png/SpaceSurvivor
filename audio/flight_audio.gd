@@ -5,6 +5,7 @@ const SCORE := [
 	preload("res://assets/audio/docking_bay.ogg"),
 	preload("res://assets/audio/hostile_orbit.ogg"),
 ]
+const FRONTIER_SCORE := preload("res://assets/audio/frontier/score.ogg")
 const MUSIC_LEVEL_DB := -9.0
 const MUSIC_FADE_SECONDS := 0.75
 const SILENT_DB := -80.0
@@ -28,6 +29,12 @@ const EFFECTS := {
 	"equip": [preload("res://assets/audio/equip.wav"), -16.0, 0.11],
 	"reward": [preload("res://assets/audio/reward.wav"), -15.0, 0.18],
 	"crate": [preload("res://assets/audio/crate.wav"), -12.0, 0.25],
+	"frontier_impact": [preload("res://assets/audio/frontier/impact.wav"), -13.0, 0.22],
+	"frontier_rail": [preload("res://assets/audio/frontier/rail.wav"), -15.0, 0.27],
+	"frontier_shift": [preload("res://assets/audio/frontier/shift.wav"), -11.0, 0.78],
+	"frontier_contact": [preload("res://assets/audio/frontier/contact.wav"), -21.0, 0.64],
+	"frontier_shield": [preload("res://assets/audio/frontier/shield.wav"), -25.0, 0.17],
+	"frontier_module": [preload("res://assets/audio/frontier/module.wav"), -11.0, 0.37],
 }
 const VARIED_EVENTS := ["shot", "hit", "kill", "pickup", "drone"]
 const VARIATION := [1.0, 0.97, 1.04, 1.01, 0.94, 1.07]
@@ -45,11 +52,12 @@ var _music := 0.65
 var _effects := 0.80
 var _variation_index := 0
 var _has_audio_output := false
+var _frontier := false
 
 
 func _ready() -> void:
 	# Movie Maker mixes into its recording even though it uses the Dummy driver.
-	_has_audio_output = AudioServer.get_driver_name() != "Dummy" or "--write-movie" in OS.get_cmdline_args()
+	_has_audio_output = AudioServer.get_driver_name() != "Dummy" or OS.get_cmdline_user_args().has("--record-live")
 	if not _has_audio_output:
 		return
 	for cue in SCORE:
@@ -61,6 +69,17 @@ func _ready() -> void:
 		add_child(player)
 		_music_players.append(player)
 	set_scene(_requested_scene)
+
+
+func set_frontier_score(enabled: bool) -> void:
+	if enabled == _frontier or _music_players.is_empty():
+		return
+	_frontier = enabled
+	var source := FRONTIER_SCORE if enabled else SCORE[1]
+	var stream := source.duplicate() as AudioStreamOggVorbis
+	stream.loop = true
+	_music_players[1].stream = stream
+	_music_target = Vector2(-1.0, -1.0)
 
 
 func set_mix(master: float, music: float, effects: float) -> void:

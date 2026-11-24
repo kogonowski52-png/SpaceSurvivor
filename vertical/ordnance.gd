@@ -1,7 +1,7 @@
 extends RefCounted
 ## Automatic armament. Rank governs emitter count and unlocks auxiliary fire.
 
-enum Kind { PULSE, PLASMA, ROCKET, HOSTILE, ORBIT }
+enum Kind { PULSE, PLASMA, ROCKET, HOSTILE, ORBIT, BOMB }
 
 const EMITTERS := [1, 2, 3, 5, 7, 7, 7]
 const RANK_COLORS := [Color("#74e9f4"), Color("#95f4ff"), Color("#90bbff"), Color("#bda2ff"),
@@ -30,7 +30,7 @@ class Shot:
 	var tint := Color.WHITE
 
 	func hostile() -> bool:
-		return kind == Kind.HOSTILE or kind == Kind.ORBIT
+		return kind >= Kind.HOSTILE
 
 var rank := 1
 var mode := "laser"

@@ -81,6 +81,7 @@ func _launch_stage(id: String) -> void:
 	_result = {}
 	_ad_message = ""
 	phase = "combat"
+	flight_audio.set_frontier_score(Campaign.ROUTE.find(id) >= 3)
 	flight_audio.set_scene(phase)
 	ui.show_hud()
 	flight = Flight.new()

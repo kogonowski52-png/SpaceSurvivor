@@ -10,6 +10,7 @@ var _planet: Texture2D
 var _orbit := Vector2.ZERO
 var _tone := Color.WHITE
 var _stars := PackedVector2Array()
+var _magnetic := false
 
 
 func configure(stage: Dictionary) -> void:
@@ -17,6 +18,7 @@ func configure(stage: Dictionary) -> void:
 	_planet = load(stage.planet)
 	_orbit = stage.planet_offset
 	_tone = stage.tone
+	_magnetic = str(stage.get("scape", "")) == "magnetic"
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 726_571 + int(stage.threat) * 7
 	for index in 60:
@@ -40,6 +42,13 @@ func draw(canvas: Node2D, view: Rect2, time: float, pilot_x: float, energy: floa
 	var moon := _orbit + Vector2(-pilot_x * 0.043, fposmod(time * 8.4 + _orbit.y + 240.0, 1_500.0) - 240.0 - _orbit.y)
 	var diameter := _planet.get_size().normalized() * 344.0
 	canvas.draw_texture_rect(_planet, Rect2(moon - diameter * 0.5, diameter), false, Color(0.69, 0.75, 0.86, 0.72))
+	if _magnetic and energy > 0.1:
+		for side: int in [-1, 1]:
+			var arc := PackedVector2Array()
+			for segment in 9:
+				var x := 270.0 + side * (213.0 + sin(segment * 8.3 + time * 19.0) * 27.0)
+				arc.append(Vector2(x, 56.0 + segment * 72.0))
+			canvas.draw_polyline(arc, Color("#a6ecfc", energy * 0.27), 2.0, true)
 
 	for index in _stars.size():
 		var layer := index % STAR_LAYERS.size()
