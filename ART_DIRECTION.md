@@ -103,3 +103,19 @@ Pole lotu 9:16 używa trzech nowych teł przygotowanych dla tego projektu. Chło
 - U góry pola są nazwa etapu, numer fali i pasek bossa. Kadłub oraz tryb i ranga broni znajdują się w dolnym HUD. Wspólna typografia i panele łączą kampanię z istniejącym hangarem i sklepem.
 
 Ocena czytelności w ruchu, kontrastu na ekranie telefonu i jakości dźwięku na głośniku wymaga fizycznego urządzenia. [Weryfikacja obrazu i ograniczenia](VERSION_VERTICAL_0_8_0_DEV.md)
+
+## Kampania 0.9.0
+
+Peregrine, Aegis, Specter i Aurora mają nowe przezroczyste sprite’y z ortogonalnego widoku grzbietowego. Różnią się proporcjami i podziałem masy. Peregrine ma srebrny dziób i dwie cyjanowe dysze, Aegis ma zwarty pancerz z trzema dyszami, Specter stanowi długą grafitową igłę, a Aurora ma szeroki łuk z prześwitami. Rozmieszczenie dysz na każdym sprite’cie jest zdefiniowane niezależnie. Podgląd hangaru korzysta z tego samego kadłuba co lot.
+
+| Warstwa | Decyzja dla 0.9.0 |
+| --- | --- |
+| Przestrzeń | Ciemny korytarz lotu przed subtelnym pyłem. Niebieskie Echo pasa, fioletowy Pryzmat i miedziany Helion mają własne tekstury nieba i oddzielne planety. |
+| Jednostki | Bursztynowy Scout, szałwiowy Razor i bordowy Warden używają czytelnych obrysów i różnych klas ruchu. |
+| Ostrzał | Krótkie bursztynowe końcówki oznaczają wrogi ogień. Przyjazny impuls ma dłuższy rdzeń, plazma poświatę w kształcie pakietu, rakieta własny korpus i smugę, a wiązka ciągłą linię i punkt kontaktu. |
+| Asterion | Ciemny pancernik z jasnymi krawędziami, dwoma lukami baterii i nagrzewającym się rdzeniem. Zaznaczone linie faz drugiej pozostają widoczne przed uderzeniem. |
+| Panel | Matowe panele granatowe, cyjan głównej akcji, bursztyn nagród i koral ostrzeżeń prowadzą wzrok. Liczniki i nazwy korzystają z Oxanium, a opisy z Barlow. |
+
+Każdy Power-Up ma osobny model i podpis. Rdzeń jest osadzonym w uchwytach sześcianem, plazma ma podwójną komorę, rakiety dwie złote głowice, wiązka pojedynczy pryzmat, a naprawa zieloną kapsułę ze szczękami. Obręcz sygnalizuje punkt zbiórki. Frakcje rozróżnia również ruch i długość smug, a ostrzeżenia bossa używają położenia, kresek i strzałek.
+
+Autorskie ilustracje wygenerowane dla gry zapisano w `assets/art/premium/`. Obejmują 24 tekstury kadłubów, Asteriona, modułów, pocisku, eksplozji, plazmy, planet, mgławic, menu i hangaru. Wyizolowane elementy atlasów mają własną alfę i mipmapy. Tła oraz oprawa menu i hangaru mają osobne obrazy. Ikony wyposażenia i licencjonowane kroje pisma pochodzą z wcześniejszej wersji projektu. [Raport 0.9.0](VERSION_VERTICAL_0_9_0.md)
