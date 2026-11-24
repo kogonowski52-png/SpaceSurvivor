@@ -4,14 +4,15 @@ signal stage_requested(id: String)
 signal campaign_requested
 
 const Campaign := preload("res://vertical/campaign.gd")
-const ROUTE_ART := preload("res://assets/art/premium/sky/helion.jpg")
+const ROUTE_ART := preload("res://assets/art/chapter_one/galaxy.jpg")
+const Stars := preload("res://vertical/route_stars.gd")
 const HERO := preload("res://assets/art/premium/hero.jpg")
 const BOSS_IMAGE := preload("res://assets/art/premium/enemies/asterion.webp")
-const Commander := preload("res://vertical/commander.gd")
 const Ordnance := preload("res://vertical/ordnance.gd")
-const STAGES_PER_PAGE := 3
 
 var _route: Control
+var _route_scroll: ScrollContainer
+var _route_motion: Tween
 var _flight_title: Label
 var _flight_wave: Label
 var _flight_score: Label
@@ -24,6 +25,8 @@ var _warning_strip: PanelContainer
 var _rank_ticks: Array[ColorRect] = []
 var _boss_fill: StyleBoxFlat
 var _boss_integrity_label: Label
+var _boss_modules: Label
+var _threshold_ticks: Array[ColorRect] = []
 
 
 func show_menu(sortie: Dictionary = {}) -> void:
@@ -68,7 +71,7 @@ func show_menu(sortie: Dictionary = {}) -> void:
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	heading.add_child(copy)
 	_tag(copy, "TRASA PILOTA", Palette.MUTED, 14)
-	_tag(copy, "Trzy sektory do Helionu", Palette.TEXT, 25)
+	_tag(copy, "Rozdział I · %d lotów" % Campaign.ROUTE.size(), Palette.TEXT, 25)
 	var status := _column(2)
 	heading.add_child(status)
 	_tag(status, str(sortie.get("route_progress", "0 / 3")), Palette.CYAN, 24)
@@ -89,7 +92,7 @@ func show_menu(sortie: Dictionary = {}) -> void:
 	_reveal(bottom, 0.38)
 
 
-func show_campaign(records: Dictionary, page_index := 0) -> void:
+func show_campaign(records: Dictionary, reveal_stage := "") -> void:
 	_clear_modal()
 	_close_campaign()
 	_drop_hangar()
@@ -100,93 +103,222 @@ func show_campaign(records: Dictionary, page_index := 0) -> void:
 	_menu = null
 	_telemetry = {}
 	_route = _page("Campaign")
-	_image(_route, ROUTE_ART, Color("#53657c"))
+	_image(_route, ROUTE_ART, Color("#a8bdcb"))
 	_menu_scrim(_route)
-	var content := _safe_content(_route, 25.0, 22.0)
-	var stack := _column(12)
-	content.add_child(stack)
-	stack.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-
-	var nav := _row(13)
-	stack.add_child(nav)
+	var content := _safe_content(_route, 24.0, 20.0)
+	var shell := _column(9)
+	content.add_child(shell)
+	shell.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var nav := _row(12)
+	shell.add_child(nav)
 	var back := _button(nav, "CampaignBackButton", "‹ MENU", menu_requested.emit)
-	back.custom_minimum_size = Vector2(101, 47)
-	back.add_theme_font_size_override("font_size", 17)
-	var chapter := _tag(nav, "PRÓG HELIONU", Palette.CYAN, 17)
+	back.custom_minimum_size = Vector2(98, 45)
+	back.add_theme_font_size_override("font_size", 16)
+	var completed := 0
+	for record: Dictionary in records.values():
+		completed += int(record.get("cleared", false))
+	var chapter := _tag(nav, "ROZDZIAŁ I", Palette.CYAN, 17)
+	chapter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	chapter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_tag(stack, "Wybierz lot", Palette.TEXT, 43)
-	var pages := ceili(float(Campaign.ROUTE.size()) / STAGES_PER_PAGE)
-	page_index = clampi(page_index, 0, pages - 1)
-	var start := page_index * STAGES_PER_PAGE
-	for id: String in Campaign.ROUTE.slice(start, start + STAGES_PER_PAGE):
-		_stage_card(stack, id, records)
-	if pages > 1:
-		var navigation := _row(10)
-		stack.add_child(navigation)
-		var previous := _button(navigation, "PreviousRoutePage", "‹ POPRZEDNIA", show_campaign.bind(records, page_index - 1))
-		var index := _tag(navigation, "%d / %d" % [page_index + 1, pages], Palette.MUTED, 17)
-		index.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		index.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		index.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var following := _button(navigation, "NextRoutePage", "NASTĘPNA ›", show_campaign.bind(records, page_index + 1))
-		previous.disabled = page_index == 0
-		following.disabled = page_index == pages - 1
-	_reveal(stack, 0.29)
+	var tally := _tag(nav, "%02d / %02d LOTÓW" % [completed, Campaign.ROUTE.size()], Palette.TEXT, 15)
+	tally.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_tag(shell, "Atlas kampanii", Palette.TEXT, 41)
+
+	var tabs := ScrollContainer.new()
+	tabs.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tabs.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	tabs.custom_minimum_size.y = 49.0
+	shell.add_child(tabs)
+	var jumps := _row(5)
+	jumps.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(jumps)
+
+	_route_scroll = ScrollContainer.new()
+	_route_scroll.name = "CampaignScroll"
+	_route_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_route_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_route_scroll.scroll_deadzone = 12
+	_route_scroll.follow_focus = true
+	shell.add_child(_route_scroll)
+	var scrollbar := _route_scroll.get_v_scroll_bar()
+	var handle := Palette.panel(Color("#749aa9"), Color.TRANSPARENT, 3)
+	for state in ["grabber", "grabber_highlight", "grabber_pressed"]:
+		scrollbar.add_theme_stylebox_override(state, handle)
+	scrollbar.add_theme_stylebox_override("scroll", Palette.panel(Color("#182433"), Color.TRANSPARENT, 3))
+	var spine := _column(9)
+	spine.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_route_scroll.add_child(spine)
+
+	for sector: Dictionary in Campaign.SECTORS:
+		var first: int = sector.start
+		var ids := Campaign.ROUTE.slice(first, first + int(sector.size))
+		if ids.is_empty():
+			continue
+		var open := Campaign.access(records, ids.front())
+		var zone := _section(spine, sector, open, str(ids.front()))
+		var short: String = sector.get("tab", str(sector.title).split(" ")[-1])
+		var jump := _button(jumps, "SectorJump_%02d" % first, short.to_upper(), _scroll_to_route.bind(zone))
+		jump.add_theme_font_size_override("font_size", 13)
+		jump.custom_minimum_size = Vector2(103.0, 44.0)
+		jump.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		for id: String in ids:
+			var anchor := _stage_card(spine, id, records, id == reveal_stage)
+			if id == reveal_stage:
+				_scroll_when_ready(anchor)
+	_reveal(shell, 0.27)
 
 
-func _stage_card(parent: Container, id: String, records: Dictionary) -> void:
+func _section(parent: Container, sector: Dictionary, open: bool, id: String) -> Control:
+	var tone: Color = sector.tone
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_stylebox_override("panel", Palette.plate(Color("#102131"), tone.darkened(0.57), 13, 2.0))
+	parent.add_child(panel)
+	var cover := Control.new()
+	cover.clip_contents = true
+	cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cover.custom_minimum_size.y = 87.0
+	panel.add_child(cover)
+	_image(cover, load(Campaign.STAGES[id].sky), Color("#b5c2cf"))
+	_card_scrim(cover)
+	var labels := _column(1)
+	cover.add_child(labels)
+	labels.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	labels.offset_left = 16.0
+	labels.offset_top = 12.0
+	labels.offset_right = -12.0
+	_tag(labels, "SEKTOR %02d–%02d  ·  %s" % [int(sector.start) + 1, int(sector.start) + int(sector.size),
+		"OTWARTY" if open else "ZABLOKOWANY"], tone, 14)
+	_tag(labels, str(sector.title), Palette.TEXT, 29)
+	return panel
+
+
+func _stage_card(parent: Container, id: String, records: Dictionary, highlight: bool) -> Control:
 	var stage: Dictionary = Campaign.STAGES[id]
 	var tone: Color = stage.tone
 	var accessible := Campaign.access(records, id)
 	var record: Dictionary = records.get(id, {})
+	var cleared := bool(record.get("cleared", false))
+	var title := str(stage.title)
+	var route_row := _row(5)
+	parent.add_child(route_row)
+	var rail := CenterContainer.new()
+	rail.custom_minimum_size.x = 51.0
+	rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	route_row.add_child(rail)
+	rail.draw.connect(_draw_route_rail.bind(rail, tone, accessible))
+	rail.resized.connect(rail.queue_redraw)
+	var marker := PanelContainer.new()
+	marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	marker.custom_minimum_size = Vector2(43.0, 40.0)
+	marker.add_theme_stylebox_override("panel", Palette.plate(Color("#142638"), tone.darkened(0.19 if accessible else 0.64), 9, 3))
+	rail.add_child(marker)
+	var number := _tag(marker, "%02d" % (Campaign.ROUTE.find(id) + 1), tone if accessible else Palette.MUTED, 18)
+	number.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := Palette.plate(Color("#101b2b"), tone.darkened(0.55 if accessible else 0.69), 12, 2.0)
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var style := Palette.plate(Color("#101b2b"), tone.darkened(0.54 if accessible else 0.70), 13, 2.0)
 	style.border_width_left = 3
 	panel.add_theme_stylebox_override("panel", style)
-	parent.add_child(panel)
+	route_row.add_child(panel)
 	var bay := Control.new()
 	bay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bay.custom_minimum_size.y = 189.0
+	bay.custom_minimum_size.y = 158.0 if accessible else 133.0
 	bay.clip_contents = true
 	panel.add_child(bay)
-	_image(bay, load(stage.sky), Color("#afc3d7") if accessible else Color("#8194ae"))
-	var artwork := TextureRect.new()
-	artwork.texture = BOSS_IMAGE if id == "helion" else load(stage.planet)
-	artwork.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	artwork.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	artwork.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	artwork.modulate = Color("#f2f6ff") if accessible else Color("#aebaca")
-	bay.add_child(artwork)
-	artwork.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
-	artwork.offset_left = -230.0
-	artwork.offset_right = 15.0 if id != "helion" else 0.0
-	artwork.offset_top = -100.0
-	artwork.offset_bottom = 107.0
+	_image(bay, load(stage.sky), Color("#92a9be") if accessible else Color("#6d829b"))
+	var art := TextureRect.new()
+	art.texture = _route_art(stage, id)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.modulate = Color("#e0ebf2") if accessible else Color("#95a7be")
+	bay.add_child(art)
+	art.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+	art.offset_left = -183
+	art.offset_right = 0
+	art.offset_top = -86
+	art.offset_bottom = 86
 	_card_scrim(bay)
-	var details := _column(3)
-	bay.add_child(details)
-	details.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	details.offset_left = 17.0
-	details.offset_right = -17.0
-	details.offset_top = 13.0
-	details.offset_bottom = -10.0
-
-	_tag(details, "%02d  /  %s" % [Campaign.ROUTE.find(id) + 1, stage.region], tone, 14)
-	_tag(details, stage.title, Palette.TEXT, 30)
-	var description := _body(details, str(stage.subtitle), 18, Color("#c2d2e4"))
-	description.custom_minimum_size.y = 44
-	var footer := _row(11)
-	details.add_child(footer)
+	var content := _column(3)
+	bay.add_child(content)
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content.offset_left = 14.0
+	content.offset_top = 8.0
+	content.offset_right = -12.0
+	content.offset_bottom = -8.0
+	var boss_name := str(Campaign.BOSS_NAMES.get(id, ""))
+	_tag(content, str(stage.region) if boss_name.is_empty() else "BOSS · " + boss_name.to_upper(),
+		Palette.AMBER if not boss_name.is_empty() else tone, 14)
+	_tag(content, title, Palette.TEXT, 25)
+	var record_row := _row(9)
+	content.add_child(record_row)
+	_add_stars(record_row, int(record.get("stars", 0)))
+	var best := int(record.get("best", 0))
+	_tag(record_row, "REKORD %d" % best if best > 0 else "REKORD —", Palette.MUTED, 15)
+	var extras := Campaign.first_reward(id)
+	var payout := "Premia +%d Credits · +%d mat." % [extras[0], extras[1]]
+	if cleared:
+		payout = "Materiały od %d · skrzynia do %d%%" % [stage.reward, Campaign.cache_chance(id, 3)]
+	if not accessible:
+		payout = "Ukończ poprzedni lot"
+	_body(content, payout, 16, Palette.TEXT if accessible else Palette.MUTED)
 	if accessible:
-		var launch := _button(footer, "LaunchStage_" + id, "ROZPOCZNIJ LOT", stage_requested.emit.bind(id), true)
-		launch.custom_minimum_size = Vector2(185, 45)
-		launch.add_theme_font_size_override("font_size", 16)
-		if int(record.get("best", 0)) > 0:
-			var best := _tag(footer, "REKORD %s" % str(record.best), Palette.TEXT, 15)
-			best.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	else:
-		_tag(footer, "■  UKOŃCZ POPRZEDNI LOT", Palette.MUTED, 15)
+		var actions := _row(6)
+		content.add_child(actions)
+		var launch := _button(actions, "LaunchStage_" + id, "POWTÓRZ LOT" if cleared else "ROZPOCZNIJ LOT", stage_requested.emit.bind(id), true)
+		launch.custom_minimum_size = Vector2(170, 43)
+		launch.add_theme_font_size_override("font_size", 15)
+	if highlight:
+		var tween := panel.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tween.tween_property(style, "border_color", tone.darkened(0.24), 1.24).from(tone.lightened(0.52))
+		tween.parallel().tween_property(art, "modulate", art.modulate, 1.02).from(tone.lightened(0.40))
+	return route_row
+
+
+func _add_stars(parent: Container, grade: int) -> void:
+	var stars := Stars.new()
+	stars.grade = grade
+	stars.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	parent.add_child(stars)
+
+
+func _route_art(stage: Dictionary, id: String) -> Texture2D:
+	match id:
+		"helion": return BOSS_IMAGE
+		"guardian": return load("res://assets/art/chapter_one/enemies/vesperon.webp")
+		"abyss": return load("res://assets/art/chapter_one/enemies/nadir.webp")
+	return load(stage.planet)
+
+
+func _draw_route_rail(rail: Control, tone: Color, available: bool) -> void:
+	var x := rail.size.x * 0.5
+	var ends := Vector2(x, rail.size.y + 9.0)
+	var color := Color(tone, 0.53 if available else 0.25)
+	rail.draw_line(Vector2(x, -9.0), ends, Color(tone, 0.13), 5.0, true)
+	rail.draw_dashed_line(Vector2(x, -9.0), ends, color, 1.8, 9.0)
+
+
+func _scroll_when_ready(anchor: Control) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if is_instance_valid(anchor):
+		_scroll_to_route(anchor)
+
+
+func _scroll_to_route(anchor: Control) -> void:
+	if not is_instance_valid(_route_scroll) or not anchor.is_inside_tree():
+		return
+	var from := _route_scroll.scroll_vertical
+	var delta := anchor.get_global_rect().position.y - _route_scroll.get_global_rect().position.y
+	var limit := _route_scroll.get_v_scroll_bar().max_value - _route_scroll.get_v_scroll_bar().page
+	var goal := roundi(clampf(from + delta - 8.0, 0.0, maxf(0.0, limit)))
+	if _route_motion != null and _route_motion.is_valid():
+		_route_motion.kill()
+	_route_motion = _route_scroll.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_route_motion.tween_property(_route_scroll, "scroll_vertical", goal, 0.33)
 
 
 func _image(parent: Control, art: Texture2D, tone: Color) -> void:
@@ -245,6 +377,7 @@ func show_hud() -> void:
 func _close_campaign() -> void:
 	_drop(_route)
 	_route = null
+	_route_scroll = null
 
 
 func _build_hud(content: Control) -> void:
@@ -271,6 +404,8 @@ func _build_hud(content: Control) -> void:
 	boss_info.add_child(boss_labels)
 	_boss_name = _tag(boss_labels, "ASTERION", Palette.DANGER, 18)
 	_boss_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_boss_modules = _tag(boss_labels, "", Palette.MUTED, 13)
+	_boss_modules.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_boss_integrity_label = _tag(boss_labels, "100%", Palette.TEXT, 18)
 	_boss_bar = _bar(boss_info, Palette.DANGER, 8.0)
 	_boss_fill = _boss_bar.get_theme_stylebox("fill") as StyleBoxFlat
@@ -278,16 +413,14 @@ func _build_hud(content: Control) -> void:
 	thresholds.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_boss_bar.add_child(thresholds)
 	thresholds.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for position_ratio in [1.0 / 3.0, 2.0 / 3.0]:
+	_threshold_ticks.clear()
+	for index in 3:
 		var tick := ColorRect.new()
 		tick.color = Color("#121322bc")
 		tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		thresholds.add_child(tick)
-		tick.anchor_left = position_ratio
-		tick.anchor_right = position_ratio
 		tick.anchor_bottom = 1.0
-		tick.offset_left = -1.0
-		tick.offset_right = 1.0
+		_threshold_ticks.append(tick)
 
 	var notice := PanelContainer.new()
 	notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -363,15 +496,26 @@ func _render_hud() -> void:
 	var hp_boss := float(_telemetry.get("boss_hp", -1.0))
 	_boss_panel.visible = hp_boss >= 0.0
 	if _boss_panel.visible:
-		var phase_index := clampi(int(_telemetry.get("boss_phase", 1)), 1, 3)
-		var tone: Color = Commander.PHASE_COLORS[phase_index - 1]
-		_boss_name.text = "ASTERION  ·  FAZA %d / 3" % phase_index
+		var phases := maxi(1, int(_telemetry.get("boss_phases", 3)))
+		var phase_index := clampi(int(_telemetry.get("boss_phase", 1)), 1, phases)
+		var tone: Color = _telemetry.get("boss_tone", Palette.DANGER)
+		_boss_name.text = "%s  ·  FAZA %d / %d" % [_telemetry.get("boss_name", "ASTERION"), phase_index, phases]
 		_boss_name.add_theme_color_override("font_color", tone)
+		var parts := int(_telemetry.get("boss_modules", -1))
+		_boss_modules.visible = parts >= 0
+		_boss_modules.text = "MODUŁY %d" % parts
 		_boss_bar.max_value = float(_telemetry.boss_max)
 		_boss_bar.value = hp_boss
 		_boss_fill.bg_color = tone
 		_boss_fill.border_color = tone
 		_boss_integrity_label.text = "%d%%" % ceili(hp_boss / _boss_bar.max_value * 100.0)
+		for index in _threshold_ticks.size():
+			var tick := _threshold_ticks[index]
+			tick.visible = index + 1 < phases
+			tick.anchor_left = float(index + 1) / phases
+			tick.anchor_right = tick.anchor_left
+			tick.offset_left = -1.0
+			tick.offset_right = 1.0
 
 
 func _animate_hud_changes(previous: Dictionary) -> void:
@@ -387,9 +531,18 @@ func show_result(data: Dictionary) -> void:
 	var stack := _modal_stack("ResultOverlay", color, 0.58)
 	_tag(stack, str(data.sector_title).to_upper(), color, 16)
 	var title := "LOT UKOŃCZONY" if won else ("CZAS UPŁYNĄŁ" if data.get("timed_out", false) else "STATEK UTRACONY")
-	var summary := "Asterion zniszczony" if data.get("boss_defeated", false) else "%d ukończonych fal" % int(data.waves)
+	var boss_name := str(Campaign.BOSS_NAMES.get(data.get("stage", ""), "Okręt dowodzenia"))
+	var summary := boss_name + " zniszczony" if data.get("boss_defeated", false) else "%d ukończonych fal" % int(data.waves)
 	var caption := "%s  ·  %s" % [summary, _clock(float(data.seconds))]
 	_heading(stack, title, caption, color, "victory" if won else "defeat")
+	if won:
+		var stars := _row(10)
+		stack.add_child(stars)
+		var grade := int(data.get("stars", 0))
+		_add_stars(stars, grade)
+		_tag(stars, "%d / 3" % grade, Palette.AMBER, 17)
+		if data.get("first_clear", false):
+			_tag(stars, "PIERWSZE UKOŃCZENIE", Palette.SUCCESS, 15)
 	var tally := _paper(stack, color, Color("#0d1927"), 11.0)
 	var report := _row(9)
 	tally.add_child(report)
@@ -407,6 +560,8 @@ func show_result(data: Dictionary) -> void:
 	_stat(loot, "CREDITS", "+%d" % int(data.get("coins", 0)))
 	_stat(loot, "MATERIAŁY", "+%d" % int(data.get("materials", 0)))
 	_stat(loot, "SKRZYNIE", "+%d" % int(data.get("crates", 0)))
+	if data.get("bonus_cache", false):
+		_body(rewards, "Odnaleziono dodatkową skrzynię", 17, Palette.AMBER)
 	if int(data.get("crystals", 0)) > 0:
 		_body(rewards, "+%d Crystals" % int(data.crystals), 18, Palette.VIOLET)
 	if not data.get("ok", true):

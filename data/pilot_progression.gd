@@ -5,7 +5,7 @@ const Catalog := preload("res://data/progression_catalog.gd")
 const Offers := preload("res://data/store/commerce_catalog.gd")
 const Wallet := preload("res://data/store/wallet.gd")
 const Campaign := preload("res://vertical/campaign.gd")
-const VERSION := 4
+const VERSION := 5
 const MAX_LEVEL := 5
 const TRACKS := ["hull", "drive", "output"]
 const STARTER_ITEMS := ["pulse_coil", "titanium_plate", "trim_nozzle", "flux_cell", "escort_bay"]
@@ -287,16 +287,27 @@ func credit_mission(result: Dictionary, sector_id: String, flight_id: String = "
 	var materials := _count(result.get("reward", 0))
 	var crates := (2 if sector_id == "zenith" else 1) if won else int(seconds >= 180.0)
 	var crystals := 4 if won else 0
-	var payout := {"ok": true, "coins": coins, "materials": materials, "crates": crates, "crystals": crystals}
+	var stars := Campaign.grade(stage, result)
+	var previous: Dictionary = candidate.campaign.get(stage, {})
+	var first := not stage.is_empty() and won and not bool(previous.get("cleared", false))
+	var bonus := Campaign.cache_earned(stage, stars, flight_id)
+	if first:
+		var award := Campaign.first_reward(stage)
+		coins += int(award[0])
+		materials += int(award[1])
+		crates += int(award[2])
+	crates += int(bonus)
+	var payout := {"ok": true, "coins": coins, "materials": materials, "crates": crates, "crystals": crystals,
+		"stars": stars, "first_clear": first, "bonus_cache": bonus}
 	candidate.coins += coins
 	candidate.materials += materials
 	candidate.crates += crates
 	candidate.crystals += crystals
 	candidate.wins += int(won)
 	if not stage.is_empty():
-		var previous: Dictionary = candidate.campaign.get(stage, {})
 		candidate.campaign[stage] = {"cleared": won or bool(previous.get("cleared", false)),
-			"best": maxi(_count(previous.get("best", 0)), _count(result.get("score", 0)))}
+			"best": maxi(_count(previous.get("best", 0)), _count(result.get("score", 0))),
+			"stars": maxi(_count(previous.get("stars", 0)), stars)}
 	if not flight_id.is_empty():
 		candidate.commerce.receipts["flight:" + flight_id] = "flight"
 		candidate.commerce.flight = {"id": flight_id, "doubled": false, "coins": coins,
@@ -563,7 +574,9 @@ func _normalize(source: Dictionary, version: int) -> Dictionary:
 	for id: String in Campaign.ROUTE:
 		if campaign.has(id) and Campaign.access(clean.campaign, id):
 			var record := _dictionary(campaign[id])
-			clean.campaign[id] = {"cleared": record.get("cleared", false) == true, "best": _count(record.get("best", 0))}
+			var cleared: bool = record.get("cleared", false) == true
+			clean.campaign[id] = {"cleared": cleared, "best": _count(record.get("best", 0)),
+				"stars": clampi(_count(record.get("stars", 0)), 1, 3) if cleared else 0}
 	_restore_wallet(clean, _dictionary(source.get("commerce")))
 	return clean
 

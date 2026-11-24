@@ -51,11 +51,12 @@ func _toggle_pause() -> void:
 func _open_campaign() -> void:
 	if ads.busy() or phase not in ["menu", "hangar", "result"]:
 		return
+	var reveal := Campaign.next(selected_stage) if phase == "result" and _result.get("first_clear", false) else ""
 	_discard_arena()
 	phase = "campaign"
 	flight_audio.set_scene(phase)
 	flight_audio.play_event("navigation")
-	ui.show_campaign(progression.snapshot().profile.campaign)
+	ui.show_campaign(progression.snapshot().profile.campaign, reveal)
 
 
 func _start_mission() -> void:

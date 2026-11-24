@@ -323,6 +323,9 @@ func _step_director(delta: float) -> void:
 				_finish(true)
 			return
 		_plan = Squadron.plan(waves[_wave_index].groups)
+		for mark: Array in waves[_wave_index].get("salvo", []):
+			var warning := float(mark[2])
+			hazards.blast(Vector2(mark[0], mark[1]), 65.0, warning, 22.0, Color("#ffad80"), "SEKWENCJA ZAPŁONU")
 		_spawn_index = 0
 		_wave_age = 0.0
 		publish_telemetry()

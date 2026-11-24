@@ -1,8 +1,20 @@
 extends RefCounted
 ## Stable route IDs preserve the pilot's scores and unlocks across campaign revisions.
 
-const ROUTE: Array[String] = ["echo", "prism", "helion"]
+const Frontier := preload("res://vertical/frontier_stages.gd")
+const ROUTE: Array[String] = [
+	"echo", "prism", "helion", "titan", "tempest", "guardian", "starbreak", "phantoms", "strait", "abyss",
+]
+const SECTORS := [
+	{"title": "Orbity Helionu", "tab": "Helion", "tone": Color("#82e8ed"), "start": 0, "size": 3},
+	{"title": "Pogranicze Tytana", "tab": "Tytan", "tone": Color("#ecc59a"), "start": 3, "size": 3},
+	{"title": "Korytarz mgławic", "tab": "Mgławice", "tone": Color("#d2adff"), "start": 6, "size": 3},
+	{"title": "Otchłań", "tab": "Otchłań", "tone": Color("#9cf2d9"), "start": 9, "size": 1},
+]
+const BOSS_NAMES := {"helion": "Asterion", "guardian": "Vesperon", "abyss": "Nadir"}
 const DEFAULT_TIME_LIMIT := 320.0
+const STAR_QUOTA := 0.70
+const STAR_HULL := 0.54
 # Group entries describe shape, fighter class, count, arrival time, depth, and horizontal bias.
 const STAGES := {
 	"echo": {
@@ -59,6 +71,13 @@ const STAGES := {
 			{"name": "Osłona Asteriona", "groups": [["line", 2, 5, 0.0, 159], ["wedge", 1, 6, 3.8, 174, -35], ["arc", 2, 5, 7.7, 166, 32], ["group", 2, 6, 11.5, 189]]},
 		],
 	},
+	"titan": Frontier.TITAN,
+	"tempest": Frontier.TEMPEST,
+	"guardian": Frontier.GUARDIAN,
+	"starbreak": Frontier.STARBREAK,
+	"phantoms": Frontier.PHANTOMS,
+	"strait": Frontier.STRAIT,
+	"abyss": Frontier.ABYSS,
 }
 
 
@@ -74,3 +93,34 @@ static func access(records: Dictionary, id: String) -> bool:
 static func next(id: String) -> String:
 	var index := ROUTE.find(id)
 	return ROUTE[index + 1] if index >= 0 and index + 1 < ROUTE.size() else ""
+
+
+static func enemy_quota(stage: Dictionary) -> int:
+	var count := int(stage.has("boss"))
+	for wave: Dictionary in stage.waves:
+		for batch: Array in wave.groups:
+			count += int(batch[2])
+	return ceili(count * STAR_QUOTA)
+
+
+static func grade(id: String, result: Dictionary) -> int:
+	if not bool(result.get("won", false)) or not STAGES.has(id):
+		return 0
+	if int(result.get("kills", 0)) < enemy_quota(STAGES[id]):
+		return 1
+	return 3 if float(result.get("hull_ratio", 0.0)) >= STAR_HULL and not bool(result.get("revived", false)) else 2
+
+
+static func first_reward(id: String) -> Array:
+	return STAGES[id].get("completion", [100, 23, id == "helion"])
+
+
+static func cache_chance(id: String, stars: int) -> int:
+	return int(STAGES[id].get("bonus_chance", 12)) + clampi(stars, 0, 3) * 3
+
+
+static func cache_earned(id: String, stars: int, flight_id: String) -> bool:
+	if stars <= 0 or flight_id.is_empty():
+		return false
+	var roll := ("salvage:" + flight_id).sha256_text().left(7).hex_to_int() % 100
+	return roll < cache_chance(id, stars)

@@ -82,6 +82,19 @@ func set_frontier_score(enabled: bool) -> void:
 	_music_target = Vector2(-1.0, -1.0)
 
 
+func _exit_tree() -> void:
+	if _music_tween != null and _music_tween.is_valid():
+		_music_tween.kill()
+	for player in _music_players:
+		player.stop()
+		player.stream = null
+	for player: AudioStreamPlayer in _players.values():
+		player.stop()
+		player.stream = null
+	_music_players.clear()
+	_players.clear()
+
+
 func set_mix(master: float, music: float, effects: float) -> void:
 	_master = clampf(master, 0.0, 1.0)
 	_music = clampf(music, 0.0, 1.0)

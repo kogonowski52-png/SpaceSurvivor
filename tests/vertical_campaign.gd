@@ -160,7 +160,7 @@ func _test_navigation_and_flights() -> void:
 	await _click("PauseButton")
 	await _click("RestartButton")
 	_check(game.phase == "combat" and game.flight != old and game.flight.gear.rank == 1, "restart creates a fresh flight")
-	for id in Campaign.ROUTE:
+	for id in Campaign.ROUTE.slice(0, 3):
 		if not _check(game.phase == "combat" and game.selected_stage == id, "playing normal stage entry " + id):
 			return
 		await _pilot_to_result()
