@@ -2,13 +2,15 @@ extends Control
 ## Product, wallet, season and simulator states all use the same tab shell.
 
 signal action_requested(action: String, value: String)
+signal offer_viewed(id: String)
 
 const Palette := preload("res://ui/palette.gd")
 const Offers := preload("res://data/store/commerce_catalog.gd")
 const Visual := preload("res://ui/store_art.gd")
+const Fleet := preload("res://data/progression_catalog.gd")
 const Display := preload("res://assets/fonts/Oxanium.ttf")
 const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
-const HANGAR := preload("res://assets/art/hangar.jpg")
+const HANGAR := preload("res://assets/art/premium/hangar.jpg")
 const CRYSTAL_TONES := [Color("#a4cdff"), Palette.VIOLET, Color("#dfb7ff")]
 const BILLING_CASES := {
 	"success": "Sukces", "cancelled": "Anulowanie", "error": "Błąd zakupu",
@@ -34,6 +36,9 @@ var _scroll: ScrollContainer
 var _back: Button
 var _tabs: Dictionary[String, Button] = {}
 var _last_status := ""
+var _visible_cards: Dictionary[String, Control] = {}
+var _seen: Dictionary = {}
+var _reveal_card: Control
 
 
 func _ready() -> void:
@@ -43,14 +48,14 @@ func _ready() -> void:
 	_heading.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 680}
 	var image := TextureRect.new()
 	image.texture = HANGAR
-	image.modulate = Color("#a9b4dd")
+	image.modulate = Color("#899cba")
 	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(image)
 	image.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var matte := ColorRect.new()
-	matte.color = Color("#050912a3")
+	matte.color = Color("#070d19bd")
 	matte.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(matte)
 	matte.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -77,11 +82,15 @@ func _ready() -> void:
 	_label(shell, "SKLEP", 40, Palette.TEXT, true)
 	var notice := _panel(shell, Palette.AMBER, 9)
 	_platform_notice = _label(notice, "", 16, Palette.AMBER)
-	var tabs := _row(shell, 5)
+	var tabs := GridContainer.new()
+	tabs.columns = 3
+	tabs.add_theme_constant_override("h_separation", 7)
+	tabs.add_theme_constant_override("v_separation", 6)
+	shell.add_child(tabs)
 	for id: String in Offers.TABS:
 		var button := _button(tabs, "StoreTab_" + id, Offers.TABS[id], _switch_tab.bind(id), Palette.CYAN)
-		button.custom_minimum_size.y = 49
-		button.add_theme_font_size_override("font_size", 13)
+		button.custom_minimum_size.y = 48
+		button.add_theme_font_size_override("font_size", 15)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_tabs[id] = button
 	var status_body := _panel(shell, Palette.CYAN, 10)
@@ -96,19 +105,27 @@ func _ready() -> void:
 	shell.add_child(_scroll)
 	var scrollbar := _scroll.get_v_scroll_bar()
 	scrollbar.add_theme_stylebox_override("scroll", Palette.panel(Color("#0a1521"), Color.TRANSPARENT, 2))
+	scrollbar.value_changed.connect(func(_value: float) -> void: _scan_offers.call_deferred())
 	for style in ["grabber", "grabber_highlight", "grabber_pressed"]:
 		scrollbar.add_theme_stylebox_override(style, Palette.panel(Palette.OUTLINE, Color.TRANSPARENT, 2))
 
 
 func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
-	_data = data
+	var pending_reveal := str(data.get("reveal", ""))
+	_data = data.duplicate()
+	_data.erase("reveal")
 	var profile: Dictionary = data.profile
 	_coins.text = str(profile.coins)
 	_crystals.text = str(profile.crystals)
-	_platform_notice.text = "TRYB TESTOWY · symulacja zakupów i reklam" if data.simulation else "GOOGLE PLAY · ceny z katalogu urządzenia"
+	if data.simulation:
+		_platform_notice.text = "SYMULATOR · zakupy i reklamy testowe"
+	elif data.play_test:
+		_platform_notice.text = "ANDROID TEST · %s" % ("zakupy licencyjne" if data.purchase_allowed else "płatności wyłączone")
+	else:
+		_platform_notice.text = "Płatności wyłączone"
 	_back.disabled = data.ad_busy
 	_status.text = str(data.get("message", ""))
-	_status_plate.visible = not _status.text.is_empty()
+	_status_plate.visible = not _status.text.is_empty() and pending_reveal.is_empty()
 	var failed: bool = data.get("state") in ["error", "save", "storage_error", "funds", "network_error", "unavailable"]
 	_status.add_theme_color_override("font_color", Palette.DANGER if failed else Palette.TEXT)
 	if _last_status != _status.text:
@@ -118,31 +135,40 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 	for id: String in _tabs:
 		_style_button(_tabs[id], Palette.CYAN, id == current_tab)
 	var offset := 0 if reset_scroll else _scroll.scroll_vertical
+	_visible_cards.clear()
 	for previous in _scroll.get_children():
 		_scroll.remove_child(previous)
 		previous.queue_free()
 	var body := VBoxContainer.new()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation", 10)
+	body.add_theme_constant_override("separation", 12)
 	_scroll.add_child(body)
+	body.resized.connect(func() -> void: _scan_offers.call_deferred())
 	var subtitle := {
-		"featured": "Zaopatrzenie orbitalne", "crystals": "Portfel Crystals",
-		"skins": "Poszycia floty", "gear": "Pakiety modułów", "season": "Archiwum Helionu",
+		"featured": "Oferty specjalne", "crystals": "Portfel Crystals",
+		"skins": "Flota i poszycia", "gear": "Wyposażenie", "season": "Przepustka Helion", "free": "Darmowe nagrody",
 	}
-	_label(body, subtitle[current_tab], 27, Palette.TEXT, true)
-	if not data.simulation and not data.checkout_ready and current_tab in ["featured", "crystals", "season"]:
-		_label(body, "Saldo kupionych Crystals pojawi się po połączeniu konta.", 17, Palette.AMBER)
-	elif data.play_test and data.purchase_allowed and current_tab in ["featured", "crystals", "season"]:
+	if current_tab != "season":
+		_label(body, subtitle[current_tab], 27, Palette.TEXT, true)
+	if data.play_test and data.purchase_allowed and current_tab in ["featured", "crystals", "season"]:
 		_label(body, "Przed zatwierdzeniem wybierz kartę testową Google Play.", 17, Palette.AMBER)
 	if current_tab == "crystals":
 		_wallet_details(body)
+	elif current_tab == "skins":
+		_fleet(body)
+	var show_pending: bool = current_tab == "featured" and not data.pending.is_empty()
+	if show_pending:
+		_featured_tools(body)
 	for id: String in Offers.OFFERS:
 		var offer: Dictionary = Offers.OFFERS[id]
 		if offer.tab == current_tab:
 			_product(body, id, offer)
 	match current_tab:
 		"featured":
-			_featured_tools(body)
+			if _data.bonus:
+				_reward_card(body, "bonus", "Bonus dzienny", Palette.AMBER)
+			if not show_pending:
+				_featured_tools(body)
 		"season":
 			_season(body)
 		"skins":
@@ -150,8 +176,15 @@ func refresh(data: Dictionary, reset_scroll: bool = false) -> void:
 				_product(body, "helion_reward", {"title": "Peregrine · Helion", "subtitle": "Nagroda przepustki",
 					"description": "Karminowe poszycie Peregrine. Bez zmian parametrów lotu.",
 					"art": "peregrine", "skin": "peregrine_helion", "kind": "earned"})
+		"free":
+			_reward_card(body, "bonus", "Bonus dzienny", Palette.AMBER)
+			_reward_card(body, "materials", "Odzysk materiałów", Palette.CYAN)
+			_button(body, "StoreCalendarButton", "KALENDARZ I ZADANIA W HANGARZE", _action.bind("hangar_rewards", ""), Palette.CYAN)
 	# Layout settles after adding product cards. Restore the old scroll position on status updates.
 	_scroll.set_deferred("scroll_vertical", offset)
+	_scan_offers.call_deferred()
+	if not pending_reveal.is_empty():
+		_reveal_reward(pending_reveal)
 
 
 func _wallet_details(parent: Container) -> void:
@@ -168,6 +201,124 @@ func _wallet_details(parent: Container) -> void:
 		_label(parent, "Wydatki z konta wymagają połączenia.", 17, Palette.MUTED)
 
 
+func _fleet(parent: Container) -> void:
+	var strip := _panel(parent, Palette.CYAN, 12)
+	var row := _row(strip, 6)
+	for id: String in Fleet.SHIPS:
+		var cell := VBoxContainer.new()
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cell.add_theme_constant_override("separation", 2)
+		row.add_child(cell)
+		var livery: String = _data.profile.commerce.equipped_skins.get(id, "")
+		var unlocked: bool = id in _data.profile.unlocked_ships
+		var ship := Visual.new()
+		ship.motif = id
+		ship.extent = Vector2(72, 64)
+		ship.tint = Offers.SKINS.get(livery, {}).get("tint", Color.WHITE) if unlocked else Color("#8598bd")
+		cell.add_child(ship)
+		var title := _label(cell, Fleet.SHIPS[id].title, 14, Palette.TEXT, true)
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		var detail := _label(cell, "DOSTĘPNY" if unlocked else "%d ZWYCIĘSTW" % Fleet.SHIPS[id].unlock_wins, 12, Palette.MUTED)
+		detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_button(strip, "StoreFleetButton", "WYBIERZ STATEK W HANGARZE", _action.bind("hangar_ships", ""), Palette.CYAN)
+
+
+func _scan_offers() -> void:
+	var window := _scroll.get_global_rect()
+	for id: String in _visible_cards:
+		if _seen.has(id):
+			continue
+		var rect := _visible_cards[id].get_global_rect()
+		if rect.has_area() and window.intersection(rect).get_area() >= rect.get_area() * 0.55:
+			_seen[id] = true
+			offer_viewed.emit(id)
+
+
+func _reward_card(parent: Container, id: String, title: String, accent: Color) -> void:
+	var award: Dictionary = Offers.ADS[id]
+	var card := _panel(parent, accent, 13)
+	var row := _row(card, 12)
+	var illustration := Visual.new()
+	illustration.motif = "salvage" if id == "bonus" else "supply"
+	illustration.extent = Vector2(141, 94)
+	row.add_child(illustration)
+	var copy := VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(copy)
+	_label(copy, title, 21, Palette.TEXT, true)
+	_label(copy, _reward_title(award), 24, accent, true)
+	_label(copy, "Raz dziennie po ukończeniu dobrowolnej reklamy.", 17, Palette.MUTED)
+	var available: bool = _data.get(id, false)
+	var button_name := "BonusCreditsButton" if id == "bonus" else "StoreMaterialsButton"
+	var label := "ODBIERZ · " + str(_data.ad_label) if available else "DZIŚ NIEDOSTĘPNE"
+	_button(card, button_name, label, _action.bind(id, ""), accent, available).disabled = _data.ad_busy or not available
+
+
+func _reward_title(award: Dictionary) -> String:
+	if award.has("skin"):
+		return Offers.SKINS[award.skin].title
+	if award.has("coins"):
+		return "+%d Credits" % award.coins
+	if award.has("crystals"):
+		return "+%d Crystals" % award.crystals
+	return "+%d materiałów" % award.get("materials", 0)
+
+
+func _reveal_reward(id: String) -> void:
+	if is_instance_valid(_reveal_card):
+		_reveal_card.queue_free()
+	var panel := PanelContainer.new()
+	panel.name = "RewardReveal"
+	panel.add_theme_stylebox_override("panel", Palette.plate(Color("#172438"), Palette.AMBER, 14, 12.0))
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(panel)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	panel.offset_left = 36
+	panel.offset_right = -36
+	panel.offset_top = -148
+	panel.offset_bottom = -32
+	_reveal_card = panel
+	var row := _row(panel, 13)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var art := Visual.new()
+	var title: String
+	var description: String
+	if Offers.OFFERS.has(id):
+		var offer: Dictionary = Offers.OFFERS[id]
+		art.motif = offer.art
+		art.rank = int(offer.get("art_rank", 1))
+		art.items = offer.get("items", [])
+		art.tint = Offers.SKINS.get(offer.get("skin", ""), {}).get("tint", Color.WHITE)
+		title = offer.title
+		description = offer.description
+	else:
+		var award: Dictionary = Offers.SEASON.get(id, Offers.ADS.get(id, {}))
+		var skin: Dictionary = Offers.SKINS.get(award.get("skin", ""), {})
+		art.motif = skin.get("ship", "salvage")
+		art.tint = skin.get("tint", Color.WHITE)
+		title = _reward_title(award)
+		description = "Nagroda Helionu" if Offers.SEASON.has(id) else "Nagroda za reklamę"
+	art.extent = Vector2(100, 82)
+	art.opening = true
+	row.add_child(art)
+	var copy := VBoxContainer.new()
+	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(copy)
+	_label(copy, "ODEBRANO", 14, Palette.AMBER, true)
+	_label(copy, title, 23, Palette.TEXT, true)
+	_label(copy, description, 16, Palette.MUTED)
+	panel.modulate.a = 0.0
+	art.scale = Vector2.ONE * 0.84
+	art.pivot_offset = art.extent * 0.5
+	var motion := panel.create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	motion.tween_property(panel, "modulate:a", 1.0, 0.22)
+	motion.tween_property(art, "scale", Vector2.ONE, 0.54)
+	motion.chain().tween_interval(2.25)
+	motion.chain().tween_property(panel, "modulate:a", 0.0, 0.27)
+	motion.chain().tween_callback(panel.queue_free)
+
+
 func _product(parent: Container, id: String, offer: Dictionary) -> void:
 	var art_tint := Palette.CYAN
 	var crystal_rank := 0
@@ -175,13 +326,16 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 		"crystals":
 			crystal_rank = clampi(int(offer.get("art_rank", 1)), 1, CRYSTAL_TONES.size())
 			art_tint = CRYSTAL_TONES[crystal_rank - 1]
-		"gear", "season": art_tint = Palette.AMBER
+		"gear", "supply", "season": art_tint = Palette.AMBER
+		"prism", "arsenal": art_tint = Palette.VIOLET
 	var skin: String = offer.get("skin", "")
 	var skin_info: Dictionary = Offers.SKINS.get(skin, {})
 	if not skin_info.is_empty():
 		art_tint = skin_info.accent
 	var card := _panel(parent, art_tint, 14)
 	card.name = "Product_" + id
+	if Offers.OFFERS.has(id):
+		_visible_cards[id] = card
 	if crystal_rank > 0:
 		var plate := card.get_parent() as PanelContainer
 		var face := plate.get_theme_stylebox("panel") as StyleBoxFlat
@@ -194,6 +348,7 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 	art.tint = skin_info.get("tint", Color.WHITE)
 	art.rank = maxi(1, crystal_rank)
 	art.items = offer.get("items", [])
+	art.extent = Vector2(192, 154) if id == "starter" or crystal_rank == 3 else Vector2(167, 126)
 	var details := VBoxContainer.new()
 	details.add_theme_constant_override("separation", 4)
 	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -206,7 +361,7 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 		details.alignment = BoxContainer.ALIGNMENT_CENTER
 	_label(details, str(offer.subtitle).to_upper(), 15 if crystal_rank > 0 else 13, art_tint, true)
 	var listing: Dictionary = _data.catalog.get(offer.get("sku", ""), {})
-	_label(details, listing.get("title", offer.title), 32 if crystal_rank == 3 else 27, Palette.TEXT, true)
+	_label(details, offer.title, 31 if crystal_rank == 3 else 25, Palette.TEXT, true)
 	_label(details, offer.description, 18, Palette.MUTED)
 
 	var profile: Dictionary = _data.profile
@@ -216,15 +371,25 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 		var unlocked: bool = skin_info.ship in profile.unlocked_ships
 		_button(card, "EquipSkin_" + skin, "ZDEJMIJ SKÓRKĘ" if equipped else ("ZAŁÓŻ SKÓRKĘ" if unlocked else "STATEK ZABLOKOWANY"),
 			_action.bind("skin", skin), art_tint).disabled = not unlocked
+	elif owned and offer.has("effect"):
+		var equipped: bool = profile.commerce.effect == offer.effect
+		_button(card, "EquipEffect_" + offer.effect, "WYŁĄCZ EFEKTY PRISM" if equipped else "WŁĄCZ EFEKTY PRISM",
+			_action.bind("effect", offer.effect), art_tint)
 	elif owned:
 		_label(card, "W TWOJEJ KOLEKCJI", 15, Palette.SUCCESS, true)
 	elif offer.kind == "play":
 		var pending: bool = id in _data.pending
 		var price: String = listing.get("price", "")
-		var available: bool = _data.simulation or (_data.purchase_allowed and not price.is_empty())
-		var purchase_label := "SYMULUJ ZAKUP" if _data.simulation else ("CENA NIEDOSTĘPNA" if price.is_empty() else "KUP · " + price)
-		if not _data.purchase_allowed:
+		var available: bool = _data.simulation or (_data.purchase_allowed and not price.is_empty() and not offer.get("preview", false))
+		var purchase_label := "SYMULUJ · %s (TEST)" % offer.test_price if _data.simulation else "KUP · " + price
+		if not _data.simulation and offer.get("preview", false):
+			purchase_label = "TYLKO W SYMULATORZE"
+		elif not _data.simulation and not _data.purchase_allowed:
 			purchase_label = "PŁATNOŚCI WYŁĄCZONE"
+			if not price.is_empty():
+				_label(details, price, 18, art_tint, true)
+		elif not _data.simulation and price.is_empty():
+			purchase_label = "CENA NIEDOSTĘPNA"
 		_button(card, "BuyOffer_" + id, "ZAMÓWIENIE OCZEKUJE" if pending else purchase_label,
 			_action.bind("billing", id), art_tint, available and not pending).disabled = pending or _data.billing_busy or not available
 	else:
@@ -243,11 +408,6 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 
 
 func _featured_tools(parent: Container) -> void:
-	var bonus := _panel(parent, Palette.AMBER, 12)
-	_label(bonus, "Bonus dzienny · +150 Credits", 23, Palette.TEXT, true)
-	_label(bonus, "Jedna dobrowolna reklama dziennie.", 18, Palette.MUTED)
-	_button(bonus, "BonusCreditsButton", "ODBIERZ · " + str(_data.ad_label) if _data.bonus else "ODEBRANO DZISIAJ",
-		_action.bind("bonus", ""), Palette.AMBER).disabled = _data.ad_busy or not _data.bonus
 	var tools := _panel(parent, Palette.OUTLINE, 12)
 	var restore_label := "PRZYWRÓĆ ZAKUPY TESTOWE" if _data.simulation else "PRZYWRÓĆ ZAKUPY GOOGLE PLAY"
 	_button(tools, "RestorePurchasesButton", restore_label, _action.bind("restore", ""), Palette.CYAN).disabled = _data.billing_busy
@@ -311,7 +471,17 @@ func _season(parent: Container) -> void:
 	var profile: Dictionary = _data.profile
 	var flights: int = profile.totals.flights
 	var has_pass: bool = "season_helion" in profile.commerce.entitlements
-	_label(parent, "Ukończone loty · %d" % flights, 20, Palette.MUTED)
+	var progress := _panel(parent, Palette.AMBER, 12)
+	_label(progress, "%d / 6 LOTÓW" % mini(flights, 6), 22, Palette.AMBER, true)
+	var bar := ProgressBar.new()
+	bar.max_value = 6.0
+	bar.value = float(flights)
+	bar.show_percentage = false
+	bar.custom_minimum_size.y = 9.0
+	bar.add_theme_stylebox_override("background", Palette.panel(Color("#080f1b"), Palette.OUTLINE, 3))
+	bar.add_theme_stylebox_override("fill", Palette.panel(Palette.AMBER, Color.TRANSPARENT, 3))
+	progress.add_child(bar)
+	_label(progress, "Liczą się rozegrane loty. Nagrody możesz odebrać w dowolnym momencie.", 16, Palette.MUTED)
 	for tier in ["free", "pass"]:
 		var accent := Palette.CYAN if tier == "free" else Palette.AMBER
 		var block := _panel(parent, accent, 12)
@@ -321,18 +491,28 @@ func _season(parent: Container) -> void:
 				continue
 			var reward: Dictionary = Offers.SEASON[id]
 			var done: bool = id in profile.commerce.season
-			var title := str(Offers.SKINS[reward.skin].title) if reward.has("skin") else (
-				"+%d Credits" % reward.coins if reward.has("coins") else "+%d Crystals" % reward.crystals)
-			var row := _row(block, 8)
-			var text := _label(row, "%d lotów · %s" % [reward.goal, title], 17, Palette.TEXT)
-			text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var cell := _panel(block, accent, 8)
+			var row := _row(cell, 10)
+			var icon := Visual.new()
+			var skin: Dictionary = Offers.SKINS.get(reward.get("skin", ""), {})
+			icon.motif = skin.get("ship", "crystals" if reward.has("crystals") else "salvage")
+			icon.tint = skin.get("tint", Color.WHITE)
+			icon.extent = Vector2(59, 48)
+			row.add_child(icon)
+			var copy := VBoxContainer.new()
+			copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(copy)
+			_label(copy, "PRÓG · %d" % reward.goal, 13, accent, true)
+			_label(copy, _reward_title(reward), 20, Palette.TEXT, true)
 			var claim_label := "ODEBRANO" if done else "ODBIERZ"
-			if tier == "pass" and not has_pass:
-				claim_label = "WYMAGA PRZEPUSTKI"
+			if not done and tier == "pass" and not has_pass:
+				claim_label = "ZABLOKOWANO"
 			elif not done and flights < reward.goal:
 				claim_label = "%d / %d" % [flights, reward.goal]
-			_button(row, "ClaimSeason_" + id, claim_label,
-				_action.bind("season", id), accent).disabled = done or flights < reward.goal or (tier == "pass" and not has_pass)
+			var can_claim: bool = not done and flights >= reward.goal and (tier == "free" or has_pass)
+			var button := _button(row, "ClaimSeason_" + id, claim_label, _action.bind("season", id), accent, can_claim)
+			button.custom_minimum_size.x = 136.0
+			button.disabled = not can_claim
 
 
 func _scenario(parent: Container, title: String, node_name: String, action: String, values: Dictionary, selected: String) -> void:
@@ -354,7 +534,13 @@ func _scenario(parent: Container, title: String, node_name: String, action: Stri
 
 
 func _switch_tab(tab: String) -> void:
+	if current_tab == tab:
+		return
 	current_tab = tab
+	if is_instance_valid(_reveal_card):
+		_reveal_card.queue_free()
+	_data.message = ""
+	_data.state = ""
 	refresh(_data, true)
 
 

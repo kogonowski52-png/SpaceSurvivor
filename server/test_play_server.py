@@ -182,9 +182,9 @@ class PurchaseWalletTest(unittest.TestCase):
             self.ledger.verify("stranger", A, CONSUMABLE, TOKEN)
         with self.assertRaisesRegex(Rejected, "wrong_product"):
             self.ledger.verify("pilot", A, PERMANENT, TOKEN)
-        for state in ("PENDING", "CANCELLED"):
+        for state, error in (("PENDING", "purchase_not_completed"), ("CANCELLED", "purchase_voided")):
             self.google.data["purchaseStateContext"]["purchaseState"] = state
-            with self.assertRaisesRegex(Rejected, "purchase_not_completed"):
+            with self.assertRaisesRegex(Rejected, error):
                 self.ledger.verify("pilot", A, CONSUMABLE, TOKEN)
         self.purchase(CONSUMABLE)
         self.google.data["productLineItem"][0]["productOfferDetails"]["quantity"] = 2
@@ -200,6 +200,26 @@ class PurchaseWalletTest(unittest.TestCase):
         self.assertFalse(live.license_checkout)
         with self.assertRaisesRegex(Rejected, "payments_disabled"):
             live.verify("pilot", A, CONSUMABLE, TOKEN)
+        self.ledger.finish_once()
+        self.assertEqual(self.google.calls, [])
+
+    def test_cancelled_purchase_revokes_entitlement_without_waiting_for_void_scan(self):
+        self.purchase(PERMANENT)
+        first = self.ledger.verify("pilot", A, PERMANENT, TOKEN)["wallet"]
+        self.assertEqual(first["offers"], ["starter"])
+        self.assertEqual(first["crystals"], 120)
+        self.google.data["purchaseStateContext"]["purchaseState"] = "CANCELLED"
+        with self.assertRaisesRegex(Rejected, "wrong_account"):
+            self.ledger.verify("stranger", B, PERMANENT, TOKEN)
+        self.assertEqual(self.ledger.wallet("pilot", B)["wallet"], first)
+        with self.assertRaisesRegex(Rejected, "purchase_voided"):
+            self.ledger.verify("pilot", B, PERMANENT, TOKEN)
+        after = self.ledger.wallet("pilot", B)["wallet"]
+        self.assertEqual(after["offers"], [])
+        self.assertEqual(after["crystals"], 0)
+        self.assertGreater(after["revision"], first["revision"])
+        self.ledger.record_void(TOKEN)
+        self.assertEqual(self.ledger.wallet("pilot", A)["wallet"], after)
         self.ledger.finish_once()
         self.assertEqual(self.google.calls, [])
 

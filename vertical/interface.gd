@@ -568,9 +568,14 @@ func show_result(data: Dictionary) -> void:
 		_body(stack, "Zapis wyniku nie powiódł się.", 19, Palette.DANGER)
 	var busy := bool(data.get("ad_busy", false))
 	if data.get("double_available", false):
-		var bonus := _button(stack, "DoubleRewardButton", "PODWÓJ WYPŁATĘ · " + ad_label, rewarded_ad_requested.emit.bind("double"))
+		var bonus := _button(stack, "DoubleRewardButton", "×2 ZA LOT · " + ad_label, rewarded_ad_requested.emit.bind("double"))
 		bonus.add_theme_font_size_override("font_size", 16)
 		bonus.disabled = busy
+	if data.get("boss_bonus_available", false):
+		var caption_text := "+%d MATERIAŁÓW · %s" % [int(data.boss_bonus_materials), ad_label]
+		var boss_bonus := _button(stack, "BossRewardButton", caption_text, rewarded_ad_requested.emit.bind("boss"))
+		boss_bonus.add_theme_font_size_override("font_size", 16)
+		boss_bonus.disabled = busy
 	if not str(data.get("ad_message", "")).is_empty():
 		_body(stack, data.ad_message, 16, Palette.MUTED)
 	var followup := str(data.get("next_stage", ""))

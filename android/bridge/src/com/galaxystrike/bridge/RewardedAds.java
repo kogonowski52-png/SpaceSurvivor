@@ -26,6 +26,7 @@ final class RewardedAds {
     private boolean updatingConsent;
     private boolean consentChecked;
     private boolean initialized;
+    private boolean presenting;
 
     RewardedAds(Activity activity, GalaxyCommercePlugin bridge) {
         this.activity = activity;
@@ -83,6 +84,13 @@ final class RewardedAds {
     }
 
     void show(String requestId, String placement) {
+        switch (placement) {
+            case "double", "revive", "bonus", "boss", "materials" -> {}
+            default -> {
+                bridge.adResult(requestId, "unavailable");
+                return;
+            }
+        }
         if (!activeRequest.isEmpty()) {
             bridge.adResult(requestId, "busy");
             return;
@@ -99,6 +107,9 @@ final class RewardedAds {
             return;
         }
         activeRequest = requestId;
+        ui.postDelayed(() -> {
+            if (requestId.equals(activeRequest) && !presenting) finish(requestId, "timeout");
+        }, 15000);
         ui.postDelayed(() -> {
             if (requestId.equals(activeRequest)) finish(requestId, "timeout");
         }, 175000);
@@ -133,6 +144,7 @@ final class RewardedAds {
     }
 
     private void display(String id, RewardedAd ad) {
+        presenting = true;
         // Grant on the earned callback and let the flight resume only after the ad closes.
         final class Completion {
             boolean earned;
@@ -161,6 +173,7 @@ final class RewardedAds {
     private void finish(String id, String state) {
         if (!id.equals(activeRequest)) return;
         activeRequest = "";
+        presenting = false;
         bridge.adResult(id, state);
     }
 }

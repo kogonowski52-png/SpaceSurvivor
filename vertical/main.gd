@@ -89,6 +89,7 @@ func _launch_stage(id: String) -> void:
 	flight.name = "VerticalFlight"
 	flight.revive_offer_enabled = progression.save_block_reason().is_empty()
 	flight.configure(id, active_sortie)
+	_track_launch(id)
 	flight.telemetry.connect(ui.update_hud)
 	flight.sound_requested.connect(flight_audio.play_event)
 	flight.mission_ended.connect(_finish_mission)

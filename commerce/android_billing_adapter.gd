@@ -20,7 +20,7 @@ func _ready() -> void:
 	_bridge.connect("billing_inventory_changed", _on_inventory)
 	var skus: Array[String] = []
 	for offer: Dictionary in Offers.OFFERS.values():
-		if offer.has("sku"):
+		if offer.has("sku") and not offer.get("preview", false):
 			skus.append(offer.sku)
 	_bridge.initBilling(JSON.stringify(skus))
 
@@ -81,6 +81,9 @@ func restore(request_id: String, _complete_pending: bool) -> void:
 
 
 func authorize(receipt: Dictionary) -> Dictionary:
+	var offer := Offers.from_sku(str(receipt.get("sku", "")))
+	if offer.is_empty() or Offers.OFFERS[offer].get("preview", false):
+		return {"ok": false, "error": "payments_disabled"}
 	return await _verifier.send("verify", {"sku": receipt.sku, "token": receipt.token})
 
 

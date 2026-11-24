@@ -11,6 +11,7 @@ signal hangar_action(action: String, value: String)
 signal settings_requested
 signal store_requested
 signal store_action(action: String, value: String)
+signal store_offer_viewed(id: String)
 signal rewarded_ad_requested(placement: String)
 signal revive_declined
 
@@ -207,6 +208,7 @@ func show_store(data: Dictionary) -> void:
 		_store = Store.new()
 		_store.name = "PremiumStore"
 		_store.action_requested.connect(store_action.emit)
+		_store.offer_viewed.connect(store_offer_viewed.emit)
 		add_child(_store)
 	_store.refresh(data)
 

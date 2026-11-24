@@ -5,7 +5,7 @@ const Catalog := preload("res://data/progression_catalog.gd")
 const Offers := preload("res://data/store/commerce_catalog.gd")
 const Wallet := preload("res://data/store/wallet.gd")
 const Campaign := preload("res://vertical/campaign.gd")
-const VERSION := 5
+const VERSION := 6
 const MAX_LEVEL := 5
 const TRACKS := ["hull", "drive", "output"]
 const STARTER_ITEMS := ["pulse_coil", "titanium_plate", "trim_nozzle", "flux_cell", "escort_bay"]
@@ -167,7 +167,7 @@ func sortie() -> Dictionary:
 	return {
 		"ship_id": ship_id, "sector_id": sector_id, "sector_title": sector.title, "duration": sector.duration,
 		"stats": Catalog.build_stats(ship_id, _data.levels.get(ship_id, {}), _available_equipment(ship_id)),
-		"skin_id": _active_skin(ship_id),
+		"skin_id": _active_skin(ship_id), "effect_id": _data.commerce.effect,
 	}
 
 
@@ -311,7 +311,9 @@ func credit_mission(result: Dictionary, sector_id: String, flight_id: String = "
 	if not flight_id.is_empty():
 		candidate.commerce.receipts["flight:" + flight_id] = "flight"
 		candidate.commerce.flight = {"id": flight_id, "doubled": false, "coins": coins,
-			"materials": materials, "crates": crates, "crystals": crystals}
+			"materials": materials, "crates": crates, "crystals": crystals,
+			"won": won, "boss": won and Campaign.BOSS_NAMES.has(stage) and result.get("boss_defeated", false),
+			"boss_bonus": false}
 	var today := _today(candidate)
 	var daily := _daily_state(candidate, today)
 	for counters in [candidate.totals, daily]:
@@ -338,6 +340,10 @@ func shop_buy(id: String) -> Dictionary:
 
 func shop_skin(id: String) -> Dictionary:
 	return _wallet_transaction(Wallet.set_skin.bind(id, _unlocked_ships(_data.wins), _account_skins))
+
+
+func shop_effect(id: String) -> Dictionary:
+	return _wallet_transaction(Wallet.set_effect.bind(id))
 
 
 func claim_season(id: String) -> Dictionary:
@@ -604,10 +610,16 @@ func _restore_wallet(profile: Dictionary, source: Dictionary) -> void:
 			if ((key.begins_with("test:") or key.begins_with("play:")) and Offers.OFFERS.has(value)) or value in ["revive", "flight"]:
 				wallet.receipts[key] = value
 	wallet.bonus_day = _date(source.get("bonus_day"))
+	wallet.materials_day = _date(source.get("materials_day"))
+	var effect: Variant = source.get("effect")
+	if effect is String and Offers.EFFECTS.has(effect) and effect in wallet.entitlements:
+		wallet.effect = effect
 	var flight := _dictionary(source.get("flight"))
 	var id: Variant = flight.get("id")
 	if id is String and id.length() <= 64 and wallet.receipts.get("flight:" + id) == "flight":
-		wallet.flight = {"id": id, "doubled": flight.get("doubled", false) == true}
+		wallet.flight = {"id": id, "doubled": flight.get("doubled", false) == true,
+			"won": flight.get("won", false) == true, "boss": flight.get("boss", false) == true,
+			"boss_bonus": flight.get("boss_bonus", false) == true}
 		for currency in Wallet.VALUES:
 			wallet.flight[currency] = _count(flight.get(currency))
 

@@ -1,6 +1,6 @@
 # Galaxy Strike — Próg Helionu
 
-Pionowa strzelanka 2D w Godot 4.7.2 stable. Pierwszy rozdział ma dziesięć lotów w czterech sektorach oraz trzy okręty dowodzenia. Zacznij w Echu pasa, przebij się przez Wrakowisko Tytana i pokonaj Nadira w Sercu Otchłani. Atlas pozwala powtarzać ukończone loty i poprawiać wynik oraz ocenę gwiazdkową. [Raport 1.0.0 i APK](VERSION_VERTICAL_1_0_0.md)
+Pionowa strzelanka 2D w Godot 4.7.2 stable. Pierwszy rozdział ma dziesięć lotów w czterech sektorach oraz trzy okręty dowodzenia. Zacznij w Echu pasa, przebij się przez Wrakowisko Tytana i pokonaj Nadira w Sercu Otchłani. Atlas pozwala powtarzać ukończone loty i poprawiać wynik oraz ocenę gwiazdkową. [Raport 1.1.0 i APK](VERSION_VERTICAL_1_1_0.md) · [Raport kampanii 1.0.0](VERSION_VERTICAL_1_0_0.md)
 
 ## Sterowanie
 
@@ -10,9 +10,9 @@ Broń strzela automatycznie w górę. Rdzenie zwiększają poziom siły ognia, a
 
 ## Hangar, zapis i sklep
 
-Wybrany statek, ulepszenia i wyposażenie wpływają na kampanię. Hangar i magazyn nagród korzystają z tego samego profilu. Wersja 5 zapisu wczytuje dotychczasowy profil i przechowuje odblokowania, rekordy oraz gwiazdy kampanii. Kolejny numer transakcji i SHA-256 pozwalają wybrać aktualną z dwóch kopii zapisu. Nagroda i wynik poziomu zapisują się w jednej transakcji.
+Wybrany statek, ulepszenia i wyposażenie wpływają na kampanię. Hangar i magazyn nagród korzystają z tego samego profilu. Wersja 6 zapisu wczytuje dotychczasowy profil i przechowuje odblokowania, rekordy oraz gwiazdy kampanii. Kolejny numer transakcji i SHA-256 pozwalają wybrać aktualną z dwóch kopii zapisu. Nagroda i wynik poziomu zapisują się w jednej transakcji.
 
-Sklep zachowuje istniejące katalogi, Credits, Crystals, skórki, pakiety i tor nagród. W kompilacji testowej zakup za prawdziwe pieniądze jest wyłączony. [Ekonomia i dotychczasowe testy](COMMERCE.md) · [Integracja Androida](ANDROID_INTEGRATION.md)
+W sześciu zakładkach sklepu znajdziesz pakiety, Crystals, statki i skórki, wyposażenie, bezterminowy Helion i darmowe nagrody. Zakupy w symulatorze oraz ceny testowe są oznaczone. APK debug korzysta z testowego AdMob i wyłączonego okna Google Play Billing. [Ekonomia 1.1](ECONOMY_1_1.md) · [Integracja Androida](ANDROID_INTEGRATION.md)
 
 ## Uruchomienie i testy
 

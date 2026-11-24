@@ -1,6 +1,6 @@
-# Galaxy Strike · Android 0.7.1
+# Galaxy Strike · Android 1.1.0
 
-Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wersja aplikacji to **0.7.1**, kod wersji to **9**, a oba presety Androida ustawiają **target SDK 36** i **min SDK 24**. ABI obejmują arm64-v8a oraz x86_64. Zachowaj ten identyfikator w Google Play Console i AdMob. Publiczne płatności pozostają wyłączone.
+Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wersja aplikacji to **1.1.0**, kod wersji to **13**, a oba presety Androida ustawiają **target SDK 36** i **min SDK 24**. ABI obejmują arm64-v8a oraz x86_64. Zachowaj ten identyfikator w Google Play Console i AdMob. Publiczne płatności pozostają wyłączone.
 
 ## Zweryfikowane wersje
 
@@ -13,7 +13,7 @@ Pakiet to **`com.galaxystrike.spacesurvivor`**, zgodny z dotychczasowym APK. Wer
 | User Messaging Platform | 4.0.0 |
 | Google Play Billing | 9.1.0 |
 
-Konfiguracja i wrapper pochodzą z taga Godot 4.7.2. Natywny most korzysta z mechanizmu pluginu v2 i adnotacji `@UsedByGodot`. Wersje SDK Google sprawdzono w aktualnych metadanych Google Maven oraz skompilowano z pobranymi bibliotekami. Przykład Rewarded od Google potwierdza sposób użycia SDK i UMP oraz identyfikatory reklam testowych. [Godot 4.7.2 Android](https://github.com/godotengine/godot/tree/4.7.2-stable/platform/android/java) · [Godot v2](https://github.com/godotengine/godot-docs/blob/4.7/tutorials/platform/android/android_plugin.rst) · [Mobile Ads](https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-ads/maven-metadata.xml) · [UMP](https://dl.google.com/dl/android/maven2/com/google/android/ump/user-messaging-platform/maven-metadata.xml) · [Billing](https://dl.google.com/dl/android/maven2/com/android/billingclient/billing/maven-metadata.xml) · [Przykład Google Rewarded](https://github.com/googleads/googleads-mobile-android-examples/tree/eac5db1a64ff2858676c98889c275cef926e3ab6/java/admob/RewardedVideoExample)
+Konfiguracja i wrapper pochodzą z taga Godot 4.7.2. Natywny most korzysta z pluginu v2 i adnotacji `@UsedByGodot`. Wersja 1.1.0 zachowuje wersje bibliotek z 1.0.0. Przykład Rewarded od Google opisuje użycie SDK, UMP i identyfikatory reklam testowych. [Godot 4.7.2 Android](https://github.com/godotengine/godot/tree/4.7.2-stable/platform/android/java) · [Godot v2](https://github.com/godotengine/godot-docs/blob/4.7/tutorials/platform/android/android_plugin.rst) · [Mobile Ads](https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-ads/maven-metadata.xml) · [UMP](https://dl.google.com/dl/android/maven2/com/google/android/ump/user-messaging-platform/maven-metadata.xml) · [Billing](https://dl.google.com/dl/android/maven2/com/android/billingclient/billing/maven-metadata.xml) · [Przykład Google Rewarded](https://github.com/googleads/googleads-mobile-android-examples/tree/eac5db1a64ff2858676c98889c275cef926e3ab6/java/admob/RewardedVideoExample)
 
 Wartość 36 jest jawna w obu presetach i została sprawdzona w gotowym APK. Bezpośredni odczyt stron pomocy Google Play w tej chmurze zwracał HTTP 403. Przed pierwszym zgłoszeniem aplikacji sprawdź wymagania obowiązujące w Play Console. [Wymagania poziomu docelowego Google Play](https://support.google.com/googleplay/android-developer/answer/11926878)
 
@@ -35,11 +35,19 @@ APK debug i podpis aplikacji z Google Play wykorzystują zwykle inne klucze. Je�
 ## AdMob i formularze prywatności
 
 - Domyślna kompilacja używa przykładowego ID aplikacji Google `ca-app-pub-3940256099942544~3347511713` oraz oficjalnej jednostki Rewarded `ca-app-pub-3940256099942544/5224354917`. Etykieta **Test AdMob** wskazuje prawdziwe żądanie reklamy testowej. Kompilacja debug zawsze używa testowej jednostki Rewarded.
-- We własnym AdMob utwórz aplikację Android o podanej nazwie pakietu i trzy jednostki Rewarded odpowiadające bonusowi dziennemu, podwojeniu wyniku i ożywieniu. Do kompilacji przypisz zmienne `GALAXY_ADMOB_APP_ID`, `GALAXY_ADMOB_REWARDED_BONUS`, `GALAXY_ADMOB_REWARDED_DOUBLE` i `GALAXY_ADMOB_REWARDED_REVIVE`. Podanie własnego App ID wymaga poprawnego ID każdej jednostki.
+- We własnym AdMob utwórz aplikację Android o podanej nazwie pakietu. Ustaw w kompilacji `GALAXY_ADMOB_APP_ID` oraz ID pięciu jednostek Rewarded z tabeli. Zwykły APK debug korzysta z przykładowych reklam.
 - W **Privacy & messaging** opublikuj wymagane regionalnie komunikaty i powiąż je z aplikacją. Przy uruchomieniu gry UMP aktualizuje status i pokazuje wymagany formularz. SDK reklam pobiera reklamę dopiero po potwierdzeniu `canRequestAds()`. Przycisk **Opcje prywatności reklam** w ustawieniach otwiera formularz, jeśli status UMP to `REQUIRED`. AdMob służy też do dodania telefonów testowych do konta i sprawdzenia statusów zgód właściwych dla aplikacji.
 - Kompilacja debug przyjmuje `GALAXY_UMP_DEBUG_DEVICE` i `GALAXY_UMP_DEBUG_GEOGRAPHY` do testów na zarejestrowanym telefonie. Obsługiwane wartości regionu to `eea`, `us` i `other`. [Scenariusze Android](release/ANDROID_QA_0_7_PL.md)
 - Ustaw `GALAXY_PRIVACY_POLICY_URL` na publiczny adres HTTPS polityki. Gra pokazuje link w ustawieniach. Gradle wymaga tego adresu przy produkcyjnym Billing lub konfigurowaniu rzeczywistego App ID AdMob. [Projekty polityki i Data Safety](release/policy)
-- Sprawdź wszystkie trzy dobrowolne wejścia. Odbierz nagrodę po ukończeniu reklamy, zamknij kolejną reklamę przed nagrodą i sprawdź tryb bez sieci. Kod przyznaje nagrodę na podstawie sygnału SDK `onUserEarnedReward`, po zamknięciu widoku. Zamknięcie i błąd bez sygnału nagrody nie przyznają wypłaty. W Play Console uzupełnij deklarację reklam i Kartę bezpieczeństwa danych zgodnie z konfiguracją SDK. [Rewarded](https://developers.google.com/admob/android/rewarded) · [Reklamy testowe](https://developers.google.com/admob/android/test-ads) · [UMP](https://developers.google.com/admob/android/privacy)
+- Sprawdź wszystkie pięć dobrowolnych wejść. Odbierz nagrodę po ukończeniu reklamy, zamknij kolejną reklamę przed nagrodą i sprawdź tryb bez sieci. Kod przyznaje nagrodę na podstawie sygnału SDK `onUserEarnedReward`, po zamknięciu widoku. Zamknięcie i błąd bez sygnału nagrody nie przyznają wypłaty. W Play Console uzupełnij deklarację reklam i Kartę bezpieczeństwa danych zgodnie z konfiguracją SDK. Przed włączeniem własnych jednostek sprawdź aktualną treść zasad Rewarded w konsoli. [Zasady reklam z nagrodą](https://support.google.com/admob/answer/7313578) · [Rewarded](https://developers.google.com/admob/android/rewarded) · [Reklamy testowe](https://developers.google.com/admob/android/test-ads) · [UMP](https://developers.google.com/admob/android/privacy)
+
+| Zmienna | Dobrowolna nagroda |
+| --- | --- |
+| `GALAXY_ADMOB_REWARDED_BONUS` | 150 Credits dziennie |
+| `GALAXY_ADMOB_REWARDED_MATERIALS` | 45 materiałów dziennie, wspólny limit sklepu i hangaru |
+| `GALAXY_ADMOB_REWARDED_DOUBLE` | Jedno podwojenie podstawowej wypłaty po zwycięstwie |
+| `GALAXY_ADMOB_REWARDED_BOSS` | 35 materiałów raz po pokonaniu bossa |
+| `GALAXY_ADMOB_REWARDED_REVIVE` | Jedno ożywienie z połową kadłuba na lot |
 
 ## Produkty i testy Google Play
 
@@ -53,11 +61,13 @@ Utwórz aktywne **produkty jednorazowe** z pojedynczą zwykłą opcją zakupu. W
 | `gs_crystals_900` | `consume` |
 | `gs_helion_pass_v1` | `acknowledge` |
 
+Powyższe produkty są jedynymi obsługiwanymi przez natywny katalog i jego backend. Helion pozostaje bezterminowym produktem jednorazowym. Pięć proponowanych SKU jest dostępnych w symulatorze. Publikację tych SKU poprzedza zatwierdzenie zawartości i cen, utworzenie produktów i przygotowanie zaufanego rozliczania po stronie serwera. [Katalog propozycji](ECONOMY_1_1.md#propozycje-cen-do-zatwierdzenia)
+
 Dodaj konta w **License testing** i udostępnij podpisaną kompilację w kanale wewnętrznym. Ustaw `GALAXY_PLAY_MODE=test`, `GALAXY_PURCHASE_SERVER` na HTTPS wdrożonego portfela testowego i `GALAXY_ENABLE_LICENSE_CHECKOUT=1`. Oddzielny serwer musi zezwolić na test licencyjny. Na urządzeniu użyj konta testera i sprawdź, czy ekran Google Play pokazuje metodę testową. Użyj wyłącznie karty testowej przy weryfikacji. Sklep pyta o aktualne zakupy przy uruchomieniu i wznowieniu oraz po wybraniu **Przywróć zakupy Google Play**. Płatność oczekująca pozostaje bez wypłaty do potwierdzenia. Przetestuj powodzenie, anulowanie, kartę odrzuconą, kartę testową z opóźnioną płatnością oraz przywrócenie na tym samym koncie po restarcie. [Integracja Billing](https://developer.android.com/google/play/billing/integrate) · [Testowanie Google Play Billing](https://developer.android.com/google/play/billing/test)
 
 ## Weryfikator i portfel zakupów
 
-Portfel 0.7.0 zatwierdza płatne Crystals, wydatki i zwroty na serwerze. Saldo i przypisane do niego przedmioty odtwarza tożsamość pilota po ponownym połączeniu konta. Dotychczasowa waluta zdobyta w grze nadal korzysta z profilu lokalnego. Backend, wydawanie kodów testowych, utrzymanie bazy i odzyskiwanie salda opisuje przewodnik serwera. [Portfel i wdrożenie testowe](server/WALLET_0_7_PL.md)
+Portfel zatwierdza płatne Crystals, wydatki i zwroty na serwerze. Gdy Publisher API potwierdzi anulowanie zamówienia podczas weryfikacji, serwer księguje zwrot od razu. Worker okresowych zwrotów może bezpiecznie ponowić tę operację. Saldo i przypisane do niego przedmioty odtwarza tożsamość pilota po ponownym połączeniu konta. Waluta zdobyta w grze nadal korzysta z profilu lokalnego. Backend, wydawanie kodów testowych, utrzymanie bazy i odzyskiwanie salda opisuje przewodnik serwera. [Portfel i wdrożenie testowe](server/WALLET_0_7_PL.md)
 
 ## Podpisany AAB do dystrybucji
 
@@ -72,7 +82,7 @@ godot --headless --export-release "Android Play AAB" build/android/GalaxyStrike-
 unset GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD
 ```
 
-Zweryfikuj podpis poleceniami `jarsigner -verify` i `bundletool validate`. Porównaj odcisk certyfikatu z kluczem przesyłania w Play Console. Zwiększ `version/code` w obu presetach, jeśli Play Console widziało już numer **9**. [Instrukcja publikacji](release/PUBLICATION_PL.md)
+Zweryfikuj podpis poleceniami `jarsigner -verify` i `bundletool validate`. Porównaj odcisk certyfikatu z kluczem przesyłania w Play Console. Zwiększ `version/code` w obu presetach, jeśli Play Console widziało już numer **13**. [Instrukcja publikacji](release/PUBLICATION_PL.md)
 
 ## Testy projektu
 
@@ -81,4 +91,4 @@ python3 -m unittest discover -s server -v
 bash tests/run.sh --full-mission
 ```
 
-Test serwera korzysta z kontrolowanych odpowiedzi Publisher API. Test Godot obejmuje przywracanie salda, błędy zapisu i niedostępność sieci. Wersja stacjonarna korzysta z oznaczonego symulatora. Stan prób na telefonie i wyniki eksportu znajdują się w raporcie. [Raport 0.7.1](VERSION_0_7_1.md) · [Scenariusze Android](release/ANDROID_QA_0_7_PL.md)
+Test serwera korzysta z kontrolowanych odpowiedzi Publisher API. Test Godot obejmuje przywracanie salda, błędy zapisu i niedostępność sieci. Wersja stacjonarna korzysta z oznaczonego symulatora. Stan prób na telefonie i wyniki eksportu znajdują się w raporcie. [Raport 1.1.0](VERSION_VERTICAL_1_1_0.md) · [Scenariusze Android](MONETIZATION_QA.md)

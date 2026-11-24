@@ -127,3 +127,9 @@ Siedem nowych scenerii rozróżniają materiały i lokalne akcenty. Wrakowisko m
 Interceptor ma długie złociste groty, Carrier szerokie boczne radiatory, Bomber dwie ciężkie komory, a Phantom jasne srebrno-fioletowe ostrza z prześwitami. Vesperon używa grafitowych bloków pancerza i ruchomych szyn. Nadira rozpoznaje się po jasnej ceramice, otwartym skrzydle i turkusowym rdzeniu. Korony, płyty, skały i moduły korzystają z osobnych sprite’ów z alfą. Ruch i ostrzeżenia opisują faktyczny obszar zagrożenia.
 
 Atlas korzysta z osobnej ilustracji galaktyki i toru spinającego karty lotów. Jasny numer i cyjan oznaczają akcję, kolor sektora grupuje trasę, a bursztyn wyróżnia bossów i gwiazdy. Nagrody i rekord mieszczą się bez zmiany kadru kart. Zasoby rozdziału są w `assets/art/chapter_one/`. Dźwięki i muzykę przygotowano dla gry przez syntezę w `tools/synthesize_chapter_one_audio.py`. [Raport wersji 1.0.0](VERSION_VERTICAL_1_0_0.md)
+
+## Sklep i Helion 1.1.0
+
+Grafitowe tło hangaru i granatowe panele budują wspólną oprawę ofert. Bursztyn wskazuje Credits i Helion, a chłodny fiolet wyróżnia Crystals i Prism. Layout zachowuje dwa wiersze zakładek w pionie. Podgląd pokazuje faktyczne kadłuby z kampanii i odpowiadające im warianty poszycia. Ikony modułów oraz trzy ilustracje pakietów Crystals korzystają ze spójnych zasobów projektu.
+
+Sześć ilustracji WebP w `assets/art/store/` przygotowano dla tej gry generatorem obrazów. Obejmują zamkniętą i otwartą skrzynię uzbrojenia, zestaw materiałów, emiter Prism, turbinę Helionu i zasobnik odzysku. Kadrowanie i kompresję wykonano na wyeksportowanych obrazach. Pozostałe zasoby i kroje pisma zachowują opisane pochodzenie. [Dowody wizualne i ograniczenia](VERSION_VERTICAL_1_1_0.md)

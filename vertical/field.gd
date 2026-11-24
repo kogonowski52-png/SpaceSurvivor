@@ -68,6 +68,7 @@ var _ship_id := "peregrine"
 var _ship_art: Dictionary = PilotArt.HULLS.peregrine
 var _stats: Dictionary = Catalog.BASE_STATS
 var _skin: Dictionary = {}
+var _effect: Dictionary = {}
 var _hull: Texture2D
 var _hull_frame := Rect2()
 var _sky := FlightSky.new()
@@ -139,6 +140,7 @@ func configure(stage_id: String, sortie: Dictionary) -> void:
 	_ship_art = PilotArt.HULLS[_ship_id]
 	_stats = sortie.get("stats", Catalog.BASE_STATS)
 	_skin = Store.SKINS.get(sortie.get("skin_id", ""), {})
+	_effect = Store.EFFECTS.get(sortie.get("effect_id", ""), {})
 	gear.reset(_stage.power, _stats)
 	_max_hp = float(_stats.max_hp)
 	_hp = _max_hp
@@ -476,6 +478,8 @@ func spawn_shot(at: Vector2, velocity: Vector2, kind: int, damage: float, lifeti
 	shot.time = lifetime
 	shot.turn = turn
 	shot.tint = tint
+	if not _effect.is_empty() and not shot.hostile():
+		shot.tint = tint.lerp(_effect.shot, 0.6)
 	_shots.append(shot)
 	_friendly += int(friendly)
 
@@ -850,7 +854,7 @@ func _draw_pilot() -> void:
 			draw_texture_rect(DRONE_ART, Rect2(pos - Vector2(13, 12), Vector2(26, 24)), false)
 	draw_set_transform(player_position, _bank)
 	var tone: Color = _ship_art.energy if _skin.is_empty() else _skin.accent
-	var plume := gear.accent().lerp(tone, 0.73)
+	var plume: Color = _effect.get("plume", gear.accent().lerp(tone, 0.73))
 	for anchor: Vector2 in _ship_art.ports:
 		var nozzle := _hull_frame.size * anchor
 		fx.small_engine(self, nozzle, 5.6, 21.0 + _thrust * 16.0 + gear.rank * 1.9 + _charge_fx * 22.0, plume, _seconds + anchor.x)

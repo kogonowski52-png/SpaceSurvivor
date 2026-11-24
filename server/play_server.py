@@ -143,16 +143,20 @@ class Ledger:
     def account_id(self, player):
         return hmac.new(self.account_key, player.encode(), hashlib.sha256).hexdigest()
 
-    def _check_purchase(self, purchase, player, sku):
+    def _check_purchase(self, purchase, player, sku, token):
         if purchase.get("obfuscatedExternalAccountId") != self.account_id(player):
             raise Rejected(403, "wrong_account")
         if ("testPurchaseContext" in purchase) != self.test_only:
             raise Rejected(422, "wrong_purchase_environment")
-        if purchase.get("purchaseStateContext", {}).get("purchaseState") != "PURCHASED":
-            raise Rejected(422, "purchase_not_completed")
         items = purchase.get("productLineItem", [])
         if len(items) != 1 or items[0].get("productId") != sku:
             raise Rejected(422, "wrong_product")
+        state = purchase.get("purchaseStateContext", {}).get("purchaseState")
+        if state == "CANCELLED":
+            self.record_void(token)
+            raise Rejected(422, "purchase_voided")
+        if state != "PURCHASED":
+            raise Rejected(422, "purchase_not_completed")
         offer = items[0].get("productOfferDetails", {})
         if offer.get("quantity") != 1 or offer.get("refundableQuantity", 1) != 1:
             raise Rejected(422, "unsupported_quantity")
@@ -166,7 +170,7 @@ class Ledger:
         if not isinstance(sku, str) or sku not in PRODUCTS or not isinstance(token, str) or not 8 <= len(token) <= 2048:
             raise Rejected(400, "invalid_request")
         purchase = self.play.purchase(token)
-        platform_finished = self._check_purchase(purchase, player, sku)
+        platform_finished = self._check_purchase(purchase, player, sku, token)
         delivery = hashlib.sha256(token.encode()).hexdigest()
 
         with closing(self._open()) as db, db:
@@ -282,7 +286,7 @@ class Ledger:
         for row in rows:
             try:
                 purchase = self.play.purchase(row["token"])
-                if not self._check_purchase(purchase, row["player"], row["sku"]):
+                if not self._check_purchase(purchase, row["player"], row["sku"], row["token"]):
                     self.play.finish(row["sku"], row["token"])
             except Rejected:
                 # Keep the row for retry, including after process restart.

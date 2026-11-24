@@ -4,6 +4,7 @@ extends Node
 signal status_changed(state: String, message: String)
 signal catalog_changed
 signal account_changed
+signal activity(event: String, fields: Dictionary)
 
 const Offers := preload("res://data/store/commerce_catalog.gd")
 const Profile := preload("res://data/pilot_progression.gd")
@@ -32,6 +33,8 @@ var adapter: Adapter
 var _profile: Profile
 var _request := ""
 var _expected_sku := ""
+var _active_offer := ""
+var _purchase_source := ""
 var _busy := false
 var _refresh_pending := false
 var _account := {"known": false, "online": false, "crystals": 0, "debt": 0, "revision": 0, "offers": []}
@@ -71,6 +74,9 @@ func buy(id: String) -> void:
 	if offer.get("kind") != "play":
 		status_changed.emit("error", "Ten produkt nie należy do katalogu Google Play.")
 		return
+	if offer.get("preview", false) and not adapter.is_test():
+		status_changed.emit("payments_disabled", MESSAGES.payments_disabled)
+		return
 	if not adapter.checkout_available():
 		status_changed.emit("payments_disabled", MESSAGES.payments_disabled)
 		return
@@ -80,14 +86,14 @@ func buy(id: String) -> void:
 	if pending(id):
 		status_changed.emit("pending", MESSAGES.pending)
 		return
-	_start(offer.sku, "Otwieranie zakupu testowego…" if adapter.is_test() else "Otwieranie Google Play…")
+	_start(id, offer.sku, "Otwieranie zakupu testowego…" if adapter.is_test() else "Otwieranie Google Play…")
 	adapter.begin_purchase(_request, _expected_sku)
 
 
 func restore(complete_pending: bool = false) -> void:
 	if _busy:
 		return
-	_start("", "Sprawdzanie zamówień testowych…" if adapter.is_test() else "Sprawdzanie zakupów Google Play…")
+	_start("restore", "", "Sprawdzanie zamówień testowych…" if adapter.is_test() else "Sprawdzanie zakupów Google Play…")
 	adapter.restore(_request, complete_pending and adapter.is_test())
 
 
@@ -135,6 +141,9 @@ func spend_paid(id: String) -> void:
 		status_changed.emit("duplicate", "Przedmiot jest już w kolekcji.")
 		return
 	_busy = true
+	_active_offer = id
+	_purchase_source = "account"
+	activity.emit("purchase_start", _activity_fields())
 	status_changed.emit("loading", "Rozliczanie Crystals z konta…")
 	var operation := Crypto.new().generate_random_bytes(16).hex_encode()
 	var receipt := await adapter.spend_account(id, operation)
@@ -157,13 +166,20 @@ func _refresh_inventory() -> void:
 		restore()
 
 
-func _start(sku: String, message: String) -> void:
+func _start(offer: String, sku: String, message: String) -> void:
+	_active_offer = offer
+	_purchase_source = "simulator" if adapter.is_test() else "play_license"
 	_expected_sku = sku
 	_request = Crypto.new().generate_random_bytes(12).hex_encode()
 	_busy = true
 	var timeout := 35.0 if adapter.is_test() else 180.0
 	get_tree().create_timer(timeout).timeout.connect(_expire.bind(_request))
+	activity.emit("purchase_start", _activity_fields())
 	status_changed.emit("loading", message)
+
+
+func _activity_fields() -> Dictionary:
+	return {"offer": _active_offer, "source": _purchase_source}
 
 
 func _expire(id: String) -> void:
@@ -173,6 +189,11 @@ func _expire(id: String) -> void:
 
 func _finish(state: String, message: String) -> void:
 	_busy = false
+	if not _active_offer.is_empty():
+		activity.emit("purchase_result", _activity_fields().merged({"state": state}))
+		_active_offer = ""
+		_purchase_source = ""
+		_expected_sku = ""
 	status_changed.emit(state, message)
 	if _refresh_pending:
 		_refresh_pending = false
@@ -254,6 +275,12 @@ func _fulfill(receipt: Dictionary) -> Dictionary:
 		return _failure("invalid_purchase")
 	var proof := await adapter.authorize(receipt)
 	if not proof.get("ok", false):
+		if proof.get("error") == "purchase_voided":
+			var wallet := await adapter.account_wallet()
+			if wallet.get("ok", false):
+				await _apply_account(wallet)
+			else:
+				_mark_account_offline()
 		return _failure(proof.get("error", "invalid_purchase"))
 	if proof.get("sku") != sku:
 		return _failure("wrong_product")
@@ -279,8 +306,10 @@ func _apply_account(response: Dictionary) -> Dictionary:
 		return _failure("invalid_purchase")
 	var ids: Array[String] = []
 	for id: Variant in wallet.offers:
-		if id is String and Offers.OFFERS.has(id) and id not in ids:
-			ids.append(id)
+		if id is String and id not in ids:
+			var offer: Dictionary = Offers.OFFERS.get(id, {})
+			if not offer.is_empty() and not offer.get("preview", false) and offer.get("currency", "crystals") == "crystals":
+				ids.append(id)
 	_account = {"known": true, "online": true, "crystals": int(wallet.crystals), "debt": int(wallet.debt),
 		"revision": int(wallet.revision), "offers": ids}
 	_profile.set_account_offers(ids)

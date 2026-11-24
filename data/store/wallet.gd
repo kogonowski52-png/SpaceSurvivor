@@ -8,7 +8,7 @@ const VALUES := ["coins", "crystals", "materials", "crates"]
 static func empty_state() -> Dictionary:
 	return {
 		"receipts": {}, "entitlements": [], "skins": [], "equipped_skins": {}, "season": [],
-		"bonus_day": "", "flight": {},
+		"bonus_day": "", "materials_day": "", "flight": {}, "effect": "",
 	}
 
 
@@ -87,13 +87,26 @@ static func claim_season(draft: Dictionary, id: String, account_pass: bool = fal
 	return success("Odebrano nagrodę Helionu.")
 
 
+static func set_effect(draft: Dictionary, id: String) -> Dictionary:
+	if not Offers.EFFECTS.has(id) or id not in draft.commerce.entitlements:
+		return failure("locked", "Ten efekt lotu nie jest jeszcze dostępny.")
+	var equipped: bool = draft.commerce.effect != id
+	draft.commerce.effect = id if equipped else ""
+	return success("Włączono efekty · %s" % Offers.EFFECTS[id].title if equipped else "Przywrócono standardowe efekty.")
+
+
 static func ad_eligible(profile: Dictionary, placement: String, scope: String, today: String) -> bool:
+	var flight: Dictionary = profile.commerce.flight
+	var settled_win: bool = not scope.is_empty() and flight.get("id", "") == scope and flight.get("won", false)
 	match placement:
 		"bonus":
 			return scope == today and profile.commerce.bonus_day < today
+		"materials":
+			return scope == today and profile.commerce.materials_day < today
 		"double":
-			var flight: Dictionary = profile.commerce.flight
-			return not scope.is_empty() and flight.get("id", "") == scope and not flight.get("doubled", false)
+			return settled_win and not flight.get("doubled", false)
+		"boss":
+			return settled_win and flight.get("boss", false) and not flight.get("boss_bonus", false)
 		"revive":
 			return not scope.is_empty() and not profile.commerce.receipts.has("revive:" + scope)
 	return false
@@ -102,20 +115,32 @@ static func ad_eligible(profile: Dictionary, placement: String, scope: String, t
 static func claim_ad(draft: Dictionary, placement: String, scope: String, today: String) -> Dictionary:
 	if not ad_eligible(draft, placement, scope, today):
 		return failure("claimed", "Nagroda jest już odebrana lub wygasła.")
+	var award: Dictionary = Offers.ADS[placement]
+	var message: String
 	match placement:
 		"bonus":
 			draft.commerce.bonus_day = today
-			draft.coins += Offers.DAILY_AD_CREDITS
-			return success("Odebrano +%d Credits." % Offers.DAILY_AD_CREDITS)
+			message = "Odebrano +%d Credits." % award.coins
+		"materials":
+			draft.commerce.materials_day = today
+			message = "Hangar · +%d materiałów." % award.materials
+		"boss":
+			draft.commerce.flight.boss_bonus = true
+			message = "Nagroda za bossa · +%d materiałów." % award.materials
 		"double":
 			var flight: Dictionary = draft.commerce.flight
-			_grant(draft, flight)
+			award = {}
+			for currency in VALUES:
+				award[currency] = int(flight[currency])
 			flight.doubled = true
-			return success("Nagrody z lotu podwojone.")
+			message = "Podwojono nagrodę podstawową za lot."
 		"revive":
 			draft.commerce.receipts["revive:" + scope] = "revive"
-			return success("Statek gotowy do powrotu.")
-	return failure("invalid", "Nieznana nagroda.")
+			message = "Statek gotowy do powrotu."
+	_grant(draft, award)
+	var outcome := success(message)
+	outcome.reward = award
+	return outcome
 
 
 static func _grant(draft: Dictionary, award: Dictionary) -> void:

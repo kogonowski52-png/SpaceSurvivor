@@ -14,6 +14,7 @@ const TestAdAdapter := preload("res://commerce/test_ad_adapter.gd")
 const AndroidBillingAdapter := preload("res://commerce/android_billing_adapter.gd")
 const AndroidAdAdapter := preload("res://commerce/android_ad_adapter.gd")
 const DebugFlightMetrics := preload("res://ui/debug_flight_metrics.gd")
+const CommerceMetrics := preload("res://commerce/metrics.gd")
 
 var arena: Arena
 var ui: Interface
@@ -27,12 +28,14 @@ var _settings_origin := "menu"
 var billing_ledger_path := "user://test_play_orders.cfg"
 var billing: BillingService
 var ads: AdService
+var metrics := CommerceMetrics.new()
 var test_billing: TestBillingAdapter
 var test_ads: TestAdAdapter
 var _store_origin := "menu"
 var _store_return_tab := "overview"
 var _store_state := ""
 var _store_notice := ""
+var _shop_reveal := ""
 var _flight_id := ""
 var _result: Dictionary
 var _ad_message := ""
@@ -78,6 +81,7 @@ func _ready() -> void:
 	ui.settings_requested.connect(_open_settings)
 	ui.store_requested.connect(_open_store)
 	ui.store_action.connect(_store_action)
+	ui.store_offer_viewed.connect(_offer_seen)
 	ui.rewarded_ad_requested.connect(_request_ad)
 	ui.revive_declined.connect(_decline_revive)
 	_setup_commerce()
@@ -95,7 +99,12 @@ func _menu_data() -> Dictionary:
 
 
 func _hangar_data() -> Dictionary:
-	return progression.snapshot()
+	var data := progression.snapshot()
+	data.ad_materials = progression.ad_eligible("materials", progression.ad_day())
+	data.ad_busy = ads.busy()
+	data.ad_label = ads.label()
+	data.ad_message = _ad_message
+	return data
 
 
 func _combat_actor() -> Node:
@@ -146,6 +155,7 @@ func _start_mission() -> void:
 	arena.revive_offer_enabled = progression.save_block_reason().is_empty()
 	active_sortie = progression.sortie()
 	arena.configure(active_sortie, previous_arena)
+	_track_launch(active_sortie.sector_id)
 	arena.name = "Arena"
 	arena.telemetry.connect(ui.update_hud)
 	arena.upgrade_requested.connect(_show_upgrades)
@@ -168,6 +178,7 @@ func _open_hangar() -> void:
 	if (phase != "menu" and phase != "result") or ads.busy():
 		return
 	phase = "hangar"
+	_ad_message = ""
 	flight_audio.set_scene(phase)
 	flight_audio.play_event("navigation")
 	_discard_arena()
@@ -184,6 +195,8 @@ func _hangar_action(action: String, value: String) -> void:
 			_start_mission()
 		"store":
 			_open_store()
+		"materials":
+			_request_ad("materials")
 		_:
 			var tab := ui.hangar_tab()
 			var outcome := progression.apply(action, value)
@@ -191,6 +204,9 @@ func _hangar_action(action: String, value: String) -> void:
 				match action:
 					"upgrade":
 						flight_audio.play_event("upgrade")
+						var profile: Dictionary = progression.snapshot().profile
+						metrics.record("ship_upgrade", {"ship": profile.ship_id, "track": value,
+							"rank": int(profile.levels[profile.ship_id][value])})
 					"open_crate":
 						flight_audio.play_event("crate")
 					"equip", "unequip":
@@ -266,8 +282,15 @@ func _finish_mission(result: Dictionary) -> void:
 	_result.merge(progression.credit_mission(result, active_sortie.sector_id, _flight_id), true)
 	_result.sector_title = active_sortie.sector_title
 	_result.duration = active_sortie.duration
+	var fields := {"level": result.get("stage", active_sortie.sector_id), "seconds": int(result.get("seconds", 0)),
+		"stars": int(_result.get("stars", 0)), "saved": bool(_result.get("ok", false))}
+	metrics.record("level_complete" if result.get("won", false) else "level_fail", fields)
 	_ad_message = ""
 	_refresh_result()
+
+
+func _track_launch(level: String) -> void:
+	metrics.record("level_start", {"level": level, "ship": active_sortie.ship_id})
 
 
 func _setup_commerce() -> void:
@@ -276,11 +299,13 @@ func _setup_commerce() -> void:
 	billing.status_changed.connect(_shop_status)
 	billing.catalog_changed.connect(_refresh_store)
 	billing.account_changed.connect(_refresh_hangar_account)
+	billing.activity.connect(_track_billing)
 	ads = AdService.new()
 	add_child(ads)
 	ads.status_changed.connect(_ad_status)
 	ads.reward_ready.connect(_credit_ad)
 	ads.privacy_changed.connect(_ad_privacy_changed)
+	ads.activity.connect(metrics.record)
 	if OS.has_feature("android"):
 		billing.configure(progression, AndroidBillingAdapter.new())
 		ads.configure(AndroidAdAdapter.new())
@@ -295,10 +320,14 @@ func _setup_commerce() -> void:
 
 
 func _open_store() -> void:
-	if phase != "menu" and phase != "hangar":
+	if phase not in ["menu", "hangar"] or ads.busy():
 		return
 	_store_origin = phase
 	_store_return_tab = ui.hangar_tab()
+	_ad_message = ""
+	_store_state = ""
+	_store_notice = ""
+	metrics.record("store_open", {"source": phase})
 	phase = "store"
 	flight_audio.set_scene(phase)
 	flight_audio.play_event("navigation")
@@ -333,6 +362,7 @@ func _refresh_store() -> void:
 	ui.show_store({
 		"profile": progression.snapshot().profile,
 		"bonus": progression.ad_eligible("bonus", progression.ad_day()),
+		"materials": progression.ad_eligible("materials", progression.ad_day()),
 		"pending": pending, "ad_busy": ads.busy(), "billing_busy": billing.busy(),
 		"simulation": billing.adapter.is_test(), "ad_label": ads.label(),
 		"catalog": billing.adapter.catalog(), "checkout_ready": billing.adapter.online_ready(),
@@ -341,8 +371,9 @@ func _refresh_store() -> void:
 		"play_test": _play_test,
 		"billing_case": test_billing.scenario if test_billing != null else "",
 		"ad_case": test_ads.scenario if test_ads != null else "",
-		"state": _store_state, "message": _store_notice,
+		"state": _store_state, "message": _store_notice, "reveal": _shop_reveal,
 	})
+	_shop_reveal = ""
 
 
 func _store_action(action: String, value: String) -> void:
@@ -351,6 +382,13 @@ func _store_action(action: String, value: String) -> void:
 	match action:
 		"back":
 			_leave_store()
+		"hangar_rewards", "hangar_ships":
+			if not ads.busy():
+				phase = "hangar"
+				_ad_message = ""
+				flight_audio.set_scene(phase)
+				flight_audio.play_event("navigation")
+				ui.show_hangar(_hangar_data(), "rewards" if action == "hangar_rewards" else "overview")
 		"billing":
 			billing.buy(value)
 		"restore", "pending":
@@ -358,15 +396,20 @@ func _store_action(action: String, value: String) -> void:
 		"account":
 			billing.connect_account(value)
 		"wallet":
-			_show_shop_outcome(progression.shop_buy(value))
+			metrics.record("purchase_start", {"offer": value, "source": "local"})
+			var outcome := progression.shop_buy(value)
+			metrics.record("purchase_result", {"offer": value, "source": "local", "state": outcome.state})
+			_show_shop_outcome(outcome, value)
 		"wallet_account":
 			billing.spend_paid(value)
 		"skin":
 			_show_shop_outcome(progression.shop_skin(value))
+		"effect":
+			_show_shop_outcome(progression.shop_effect(value))
 		"season":
-			_show_shop_outcome(progression.claim_season(value))
-		"bonus":
-			_request_ad("bonus")
+			_show_shop_outcome(progression.claim_season(value), value)
+		"bonus", "materials":
+			_request_ad(action)
 		"billing_case":
 			if test_billing != null and value in ["success", "cancelled", "error", "pending", "network_error", "unavailable", "repeat"]:
 				test_billing.scenario = value
@@ -377,7 +420,21 @@ func _store_action(action: String, value: String) -> void:
 				_refresh_store()
 
 
-func _show_shop_outcome(outcome: Dictionary) -> void:
+func _offer_seen(id: String) -> void:
+	if phase == "store":
+		metrics.record("offer_view", {"offer": id})
+
+
+func _track_billing(event: String, fields: Dictionary) -> void:
+	metrics.record(event, fields)
+	var offer := str(fields.get("offer", ""))
+	if phase == "store" and event == "purchase_result" and fields.get("state") == "success" and StoreCatalog.OFFERS.has(offer):
+		_shop_reveal = offer
+
+
+func _show_shop_outcome(outcome: Dictionary, reveal := "") -> void:
+	if outcome.ok:
+		_shop_reveal = reveal
 	_shop_status(outcome.state, outcome.message)
 
 
@@ -408,6 +465,8 @@ func _decline_revive() -> void:
 
 func _refresh_result() -> void:
 	_result.double_available = bool(_result.get("ok", false)) and progression.ad_eligible("double", _flight_id)
+	_result.boss_bonus_available = bool(_result.get("ok", false)) and progression.ad_eligible("boss", _flight_id)
+	_result.boss_bonus_materials = StoreCatalog.ADS.boss.materials
 	_result.ad_busy = ads.busy()
 	_result.ad_message = _ad_message
 	ui.show_result(_result)
@@ -420,7 +479,11 @@ func _request_ad(placement: String) -> void:
 			if phase != "store":
 				return
 			scope = progression.ad_day()
-		"double":
+		"materials":
+			if phase not in ["hangar", "store"]:
+				return
+			scope = progression.ad_day()
+		"double", "boss":
 			if phase != "result" or not bool(_result.get("ok", false)):
 				return
 		"revive":
@@ -444,6 +507,8 @@ func _ad_status(state: String, message: String) -> void:
 			_refresh_result()
 		"revive":
 			ui.show_revive(ads.busy(), message)
+		"hangar":
+			ui.show_hangar(_hangar_data(), ui.hangar_tab())
 
 
 func _credit_ad(placement: String, scope: String) -> void:
@@ -451,6 +516,9 @@ func _credit_ad(placement: String, scope: String) -> void:
 	if placement == "revive" and (phase != "revive" or scope != _flight_id or not is_instance_valid(flight) or not flight.can_revive()):
 		return
 	var outcome := progression.claim_rewarded_ad(placement, scope)
+	if outcome.ok:
+		var fields := {"placement": placement, "source": ads.source()}
+		metrics.record("reward_granted", fields.merged(outcome.reward))
 	if outcome.ok and scope == _flight_id:
 		match placement:
 			"revive":
@@ -459,10 +527,12 @@ func _credit_ad(placement: String, scope: String) -> void:
 				flight.revive()
 				ui.show_hud()
 				return
-			"double":
-				for key in ["coins", "crystals", "materials", "crates"]:
-					_result[key] *= 2
+			"double", "boss":
+				for key: String in outcome.reward:
+					_result[key] += outcome.reward[key]
 				flight_audio.play_event("reward")
+	elif outcome.ok and placement in ["bonus", "materials"] and phase == "store":
+		_shop_reveal = placement
 	_ad_status(outcome.state, outcome.message)
 
 

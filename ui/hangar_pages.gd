@@ -2,6 +2,7 @@ extends RefCounted
 
 const Palette := preload("res://ui/palette.gd")
 const Catalog := preload("res://data/progression_catalog.gd")
+const Offers := preload("res://data/store/commerce_catalog.gd")
 const Glyph := preload("res://ui/hangar_glyph.gd")
 const Display := preload("res://assets/fonts/Oxanium.ttf")
 const Body := preload("res://assets/fonts/Barlow-Medium.ttf")
@@ -218,6 +219,17 @@ func _rewards(parent: VBoxContainer, data: Dictionary, profile: Dictionary, acti
 	var loot_id := str(data.get("loot", ""))
 	if Catalog.ITEMS.has(loot_id):
 		_recovered_module(parent, loot_id, data.get("highlight") == "open_crate")
+
+	var salvage := _panel(parent, Palette.CYAN, bool(data.get("ad_materials", false)))
+	_copy(salvage, "Odzysk materiałów", 24, Palette.TEXT, true)
+	var award: int = Offers.ADS.materials.materials
+	_copy(salvage, "+%d materiałów za jedną dobrowolną reklamę dziennie." % award, 18, Palette.MUTED)
+	var available := bool(data.get("ad_materials", false))
+	var label := "ODBIERZ · " + str(data.get("ad_label", "REKLAMA")) if available else "DZIŚ NIEDOSTĘPNE"
+	_button(salvage, "HangarMaterialsButton", label, action.bind("materials", ""), Palette.CYAN, 0, 16, available).disabled = (
+		not available or bool(data.get("ad_busy", false)))
+	if not str(data.get("ad_message", "")).is_empty():
+		_copy(salvage, data.ad_message, 17, Palette.TEXT)
 
 	_calendar(parent, data.get("calendar", []), action)
 	_copy(parent, "Codzienne zadania", 26, Palette.TEXT, true)

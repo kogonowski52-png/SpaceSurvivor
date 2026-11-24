@@ -1,7 +1,7 @@
 // Applied to the Godot 4.7.2 Android export template by tools/prepare_android.sh.
 def sampleApp = 'ca-app-pub-3940256099942544~3347511713'
 def admobApp = System.getenv('GALAXY_ADMOB_APP_ID') ?: sampleApp
-def placements = ['bonus', 'double', 'revive']
+def placements = ['bonus', 'double', 'revive', 'boss', 'materials']
 def unitIds = placements.collectEntries { placement ->
     [(placement): System.getenv('GALAXY_ADMOB_REWARDED_' + placement.toUpperCase(Locale.ROOT)) ?: '']
 }
@@ -9,7 +9,7 @@ if (!(admobApp ==~ /ca-app-pub-[0-9]+~[0-9]+/)) {
     throw new GradleException('Invalid GALAXY_ADMOB_APP_ID')
 }
 if (admobApp != sampleApp && !unitIds.values().every { it ==~ /ca-app-pub-[0-9]+\/[0-9]+/ }) {
-    throw new GradleException('Configure all three Rewarded units with a live AdMob App ID')
+    throw new GradleException('Configure all five Rewarded units with a live AdMob App ID')
 }
 def purchaseServer = System.getenv('GALAXY_PURCHASE_SERVER') ?: ''
 def playMode = System.getenv('GALAXY_PLAY_MODE') ?: 'test'
@@ -45,6 +45,8 @@ android {
             galaxyRewardedBonus: unitIds.bonus,
             galaxyRewardedDouble: unitIds.double,
             galaxyRewardedRevive: unitIds.revive,
+            galaxyRewardedBoss: unitIds.boss,
+            galaxyRewardedMaterials: unitIds.materials,
             galaxyPurchaseServer: purchaseServer,
             galaxyPlayMode: playMode,
             galaxyLicenseCheckout: licenseCheckout ? 'enabled' : 'disabled',
