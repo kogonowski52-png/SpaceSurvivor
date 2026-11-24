@@ -10,6 +10,9 @@ func _run() -> void:
 	if "--record-live" in options:
 		await _live_finish()
 	elif "--stress-chapter" in options:
+		if "--graphics-low" in options:
+			game.mix_preferences.graphics.quality = "low"
+		Engine.max_fps = 0
 		await _stress("strait")
 		await _stress("abyss")
 	else:
@@ -183,9 +186,10 @@ func _stress(id: String) -> void:
 	for duration in frames:
 		total += duration
 	await RenderingServer.frame_post_draw
-	print("DESKTOP %s device=%s raster=%s duration=%.2f FPS=%.2f p95=%.2f engine_MiB=%.1f peaks=%s" % [
-		id, RenderingServer.get_video_adapter_name(), root.get_texture().get_image().get_size(), total / 1000.0,
+	print("DESKTOP %s quality=%s device=%s raster=%s duration=%.2f FPS=%.2f p95=%.2f engine_MiB=%.1f peaks=%s" % [
+		id, game.mix_preferences.graphics.quality, RenderingServer.get_video_adapter_name(), root.get_texture().get_image().get_size(), total / 1000.0,
 		frames.size() * 1_000.0 / total, frames[floori((frames.size() - 1) * .95)], memory, peaks])
+	print("DESKTOP SETUP " + JSON.stringify(game.diagnostics.report(game.mix_preferences.graphics, root.size, null).scene_setup_ms))
 	if game.phase == "result":
 		await _click("CampaignButton")
 		await _click("CampaignBackButton")

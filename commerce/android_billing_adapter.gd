@@ -20,7 +20,7 @@ func _ready() -> void:
 	_bridge.connect("billing_inventory_changed", _on_inventory)
 	var skus: Array[String] = []
 	for offer: Dictionary in Offers.OFFERS.values():
-		if offer.has("sku") and not offer.get("preview", false):
+		if offer.has("sku") and (not offer.get("preview", false) or preview_available()):
 			skus.append(offer.sku)
 	_bridge.initBilling(JSON.stringify(skus))
 
@@ -40,6 +40,10 @@ func online_ready() -> bool:
 
 func checkout_available() -> bool:
 	return online_ready() and _bridge.licenseCheckoutEnabled()
+
+
+func preview_available() -> bool:
+	return _bridge != null and _bridge.licenseDraftCatalogEnabled()
 
 
 func can_connect_account() -> bool:
@@ -70,6 +74,10 @@ func begin_purchase(request_id: String, sku: String) -> void:
 	if session.get("license_checkout") != true:
 		answered.emit(request_id, "payments_disabled", [])
 		return
+	var offer := Offers.from_sku(sku)
+	if offer.is_empty() or (Offers.OFFERS[offer].get("preview", false) and session.get("draft_checkout") != true):
+		answered.emit(request_id, "payments_disabled", [])
+		return
 	_bridge.startPurchase(request_id, sku, account)
 
 
@@ -82,7 +90,7 @@ func restore(request_id: String, _complete_pending: bool) -> void:
 
 func authorize(receipt: Dictionary) -> Dictionary:
 	var offer := Offers.from_sku(str(receipt.get("sku", "")))
-	if offer.is_empty() or Offers.OFFERS[offer].get("preview", false):
+	if offer.is_empty():
 		return {"ok": false, "error": "payments_disabled"}
 	return await _verifier.send("verify", {"sku": receipt.sku, "token": receipt.token})
 

@@ -5,6 +5,7 @@ signal action_requested(action: String, value: String)
 signal offer_viewed(id: String)
 
 const Palette := preload("res://ui/palette.gd")
+const SafeLayout := preload("res://ui/safe_layout.gd")
 const Offers := preload("res://data/store/commerce_catalog.gd")
 const Visual := preload("res://ui/store_art.gd")
 const Fleet := preload("res://data/progression_catalog.gd")
@@ -63,14 +64,7 @@ func _ready() -> void:
 	var shell := VBoxContainer.new()
 	shell.add_theme_constant_override("separation", 10)
 	add_child(shell)
-	shell.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var safe := DisplayServer.get_display_safe_area() if OS.has_feature("android") else Rect2i()
-	var screen := DisplayServer.screen_get_size() if safe.has_area() else Vector2i.ONE
-	var scale := get_viewport_rect().size / Vector2(screen)
-	shell.offset_left = 22.0 + safe.position.x * scale.x
-	shell.offset_right = -22.0 - (screen.x - safe.end.x) * scale.x if safe.has_area() else -22.0
-	shell.offset_top = 20.0 + safe.position.y * scale.y
-	shell.offset_bottom = -20.0 - (screen.y - safe.end.y) * scale.y if safe.has_area() else -20.0
+	SafeLayout.fill(shell, Vector2(22.0, 20.0))
 	var header := _row(shell, 9)
 	_back = _button(header, "StoreBackButton", "‹ POWRÓT", _action.bind("back", ""), Palette.CYAN)
 	_back.custom_minimum_size.x = 104
@@ -273,10 +267,11 @@ func _reveal_reward(id: String) -> void:
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(panel)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	panel.offset_left = 36
-	panel.offset_right = -36
-	panel.offset_top = -148
-	panel.offset_bottom = -32
+	var safe := SafeLayout.insets(self)
+	panel.offset_left = 36 + safe.x
+	panel.offset_right = -36 - safe.z
+	panel.offset_top = -148 - safe.w
+	panel.offset_bottom = -32 - safe.w
 	_reveal_card = panel
 	var row := _row(panel, 13)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -380,10 +375,11 @@ func _product(parent: Container, id: String, offer: Dictionary) -> void:
 	elif offer.kind == "play":
 		var pending: bool = id in _data.pending
 		var price: String = listing.get("price", "")
-		var available: bool = _data.simulation or (_data.purchase_allowed and not price.is_empty() and not offer.get("preview", false))
+		var draft_locked: bool = offer.get("preview", false) and not _data.get("preview_catalog", false)
+		var available: bool = _data.simulation or (_data.purchase_allowed and not price.is_empty() and not draft_locked)
 		var purchase_label := "SYMULUJ · %s (TEST)" % offer.test_price if _data.simulation else "KUP · " + price
-		if not _data.simulation and offer.get("preview", false):
-			purchase_label = "TYLKO W SYMULATORZE"
+		if not _data.simulation and draft_locked:
+			purchase_label = "KATALOG TESTOWY ZABLOKOWANY"
 		elif not _data.simulation and not _data.purchase_allowed:
 			purchase_label = "PŁATNOŚCI WYŁĄCZONE"
 			if not price.is_empty():

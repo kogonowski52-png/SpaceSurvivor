@@ -1,7 +1,9 @@
 package com.galaxystrike.bridge;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.content.pm.ApplicationInfo;
 
@@ -33,6 +35,7 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
         return new HashSet<>(Arrays.asList(
             new SignalInfo("ad_result", String.class, String.class),
             new SignalInfo("ad_privacy", Boolean.class, String.class),
+            new SignalInfo("ad_diagnostic", String.class, String.class),
             new SignalInfo("billing_result", String.class, String.class, String.class),
             new SignalInfo("billing_catalog", String.class),
             new SignalInfo("billing_inventory_changed")
@@ -52,7 +55,7 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
     @UsedByGodot
     public boolean testAds() {
         Activity activity = getActivity();
-        return activity == null || debuggable(activity)
+        return activity == null || "test".equals(playMode()) || debuggable(activity)
             || SAMPLE_APP_ID.equals(metadata(activity, "com.google.android.gms.ads.APPLICATION_ID"));
     }
 
@@ -99,19 +102,51 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
     @UsedByGodot
     public boolean licenseCheckoutEnabled() {
         Activity activity = getActivity();
-        return activity != null && "test".equals(playMode())
-            && "enabled".equals(metadata(activity, "com.galaxystrike.license_checkout"));
+        return activity != null && !debuggable(activity) && "test".equals(playMode())
+            && "enabled".equals(metadata(activity, "com.galaxystrike.license_checkout")) && installedFromPlay(activity);
+    }
+
+    @UsedByGodot
+    public boolean licenseDraftCatalogEnabled() {
+        Activity activity = getActivity();
+        return activity != null && licenseCheckoutEnabled()
+            && "enabled".equals(metadata(activity, "com.galaxystrike.draft_catalog"));
+    }
+
+    private static boolean installedFromPlay(Activity activity) {
+        var manager = activity.getPackageManager();
+        try {
+            String installer = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                ? manager.getInstallSourceInfo(activity.getPackageName()).getInstallingPackageName()
+                : manager.getInstallerPackageName(activity.getPackageName());
+            return "com.android.vending".equals(installer);
+        } catch (PackageManager.NameNotFoundException | SecurityException ignored) {
+            return false;
+        }
     }
 
     @UsedByGodot
     public int diagnosticPssKib() {
         Activity activity = getActivity();
-        if (activity == null || !debuggable(activity)) return 0;
+        if (activity == null || !"test".equals(playMode())) return 0;
         return (int) Math.min(android.os.Debug.getPss(), Integer.MAX_VALUE);
     }
 
     static boolean debuggable(Activity activity) {
         return (activity.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
+    @UsedByGodot
+    public void shareDiagnostics(String report) {
+        Activity activity = getActivity();
+        if (activity == null || !"test".equals(playMode()) || report.length() > 16384) return;
+        activity.runOnUiThread(() -> {
+            if (activity.isFinishing()) return;
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(Intent.EXTRA_TEXT, report);
+            activity.startActivity(Intent.createChooser(share, "Raport Galaxy Strike"));
+        });
     }
 
     @UsedByGodot
@@ -165,11 +200,18 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
     @Override
     public void onMainResume() {
         if (billing != null) billing.onResume();
+        if (ads != null) ads.onResume();
+    }
+
+    @Override
+    public void onMainPause() {
+        if (ads != null) ads.onPause();
     }
 
     @Override
     public void onMainDestroy() {
         if (billing != null) billing.close();
+        if (ads != null) ads.close();
     }
 
     static String metadata(Activity activity, String key) {
@@ -188,6 +230,10 @@ public final class GalaxyCommercePlugin extends GodotPlugin {
 
     void privacyChanged(boolean required, String status) {
         emitSignal("ad_privacy", required, status);
+    }
+
+    void adDiagnostic(String requestId, String state) {
+        emitSignal("ad_diagnostic", requestId, state);
     }
 
     void billingResult(String requestId, String status, String receipts) {

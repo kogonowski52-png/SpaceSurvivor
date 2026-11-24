@@ -71,6 +71,7 @@ func _launch_stage(id: String) -> void:
 		return
 	if not Campaign.access(progression.snapshot().profile.campaign, id):
 		return
+	var started := Time.get_ticks_usec()
 	_discard_arena()
 	selected_stage = id
 	var stage: Dictionary = Campaign.STAGES[id]
@@ -89,12 +90,14 @@ func _launch_stage(id: String) -> void:
 	flight.name = "VerticalFlight"
 	flight.revive_offer_enabled = progression.save_block_reason().is_empty()
 	flight.configure(id, active_sortie)
+	flight.set_visual_settings(Graphics.tuning(mix_preferences.graphics))
 	_track_launch(id)
 	flight.telemetry.connect(ui.update_hud)
 	flight.sound_requested.connect(flight_audio.play_event)
 	flight.mission_ended.connect(_finish_mission)
 	flight.revive_offered.connect(_offer_revive)
 	add_child(flight)
+	diagnostics.note_setup(id, Time.get_ticks_usec() - started)
 
 
 func _refresh_result() -> void:

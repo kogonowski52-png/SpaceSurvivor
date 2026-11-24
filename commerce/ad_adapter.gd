@@ -3,6 +3,7 @@ extends Node
 
 signal answered(request_id: String, state: String)
 signal privacy_changed(required: bool, message: String)
+signal diagnostic(request_id: String, state: String)
 
 
 func show_rewarded(request_id: String, _placement: String) -> void:

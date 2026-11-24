@@ -14,6 +14,7 @@ func show_rewarded(request_id: String, _placement: String) -> void:
 
 
 func _deliver(id: String, outcome: String) -> void:
+	diagnostic.emit(id, "loading")
 	if response_delay > 0:
 		await get_tree().create_timer(response_delay).timeout
 	answered.emit(id, "rewarded" if outcome == "repeat" else outcome)

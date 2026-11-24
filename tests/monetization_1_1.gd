@@ -182,6 +182,7 @@ func _test_display_prices() -> void:
 	synthetic.simulation = false
 	synthetic.play_test = true
 	synthetic.purchase_allowed = true
+	synthetic.preview_catalog = false
 	synthetic.catalog = {"gs_crystals_100": {"price": "¥123"}, "gs_arsenal_v1": {"price": "¥456"}}
 	store.refresh(synthetic)
 	await _frames(5)
@@ -190,6 +191,11 @@ func _test_display_prices() -> void:
 	var known := _button("BuyOffer_crystals_100")
 	_check(known != null and known.text.ends_with("¥123") and _button("BuyOffer_crystals_350") == null,
 		"native prices use supplied ProductDetails and missing products cannot be purchased")
+	synthetic.preview_catalog = true
+	store.refresh(synthetic)
+	await _click("StoreTab_featured")
+	var candidate := _button("BuyOffer_arsenal_pilot")
+	_check(candidate != null and candidate.text.ends_with("¥456"), "license-only draft catalog uses its own supplied ProductDetails")
 
 
 func _capture_shop() -> void:

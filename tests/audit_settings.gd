@@ -13,8 +13,10 @@ func _run() -> void:
 		return
 	_check(game.phase == "settings", "title settings button opens controls")
 	if OS.is_debug_build():
+		await _click("SettingsTab_diagnostics")
 		await _click("DiagnosticsButton")
 		_check(is_instance_valid(game._debug_metrics), "debug settings toggle enables flight diagnostics")
+		await _click("SettingsTab_audio")
 	_check(_button("PrivacyPolicyButton") == null and _button("PrivacyOptionsButton") == null,
 		"desktop simulator exposes no unconfigured policy link or UMP button")
 	game.ads.adapter.privacy_changed.emit(true, "")
@@ -40,7 +42,9 @@ func _run() -> void:
 	await _click("SettingsButton")
 	_check(_button("PrivacyPolicyButton") != null, "a configured policy URL adds a link in settings")
 	if OS.is_debug_build():
+		await _click("SettingsTab_diagnostics")
 		await _click("DiagnosticsButton")
+		await _click("SettingsTab_audio")
 	master = _slider("MasterVolume")
 	_check(master != null and master.value == 52.0, "fresh scene loads the saved audio levels")
 	if master != null:

@@ -74,7 +74,7 @@ func buy(id: String) -> void:
 	if offer.get("kind") != "play":
 		status_changed.emit("error", "Ten produkt nie należy do katalogu Google Play.")
 		return
-	if offer.get("preview", false) and not adapter.is_test():
+	if offer.get("preview", false) and not adapter.preview_available():
 		status_changed.emit("payments_disabled", MESSAGES.payments_disabled)
 		return
 	if not adapter.checkout_available():
@@ -308,7 +308,7 @@ func _apply_account(response: Dictionary) -> Dictionary:
 	for id: Variant in wallet.offers:
 		if id is String and id not in ids:
 			var offer: Dictionary = Offers.OFFERS.get(id, {})
-			if not offer.is_empty() and not offer.get("preview", false) and offer.get("currency", "crystals") == "crystals":
+			if not offer.is_empty() and offer.get("currency", "crystals") == "crystals":
 				ids.append(id)
 	_account = {"known": true, "online": true, "crystals": int(wallet.crystals), "debt": int(wallet.debt),
 		"revision": int(wallet.revision), "offers": ids}
@@ -319,6 +319,12 @@ func _apply_account(response: Dictionary) -> Dictionary:
 		for delivery: Variant in bonuses:
 			if delivery is String and _profile.redeem_starter_credits(delivery).ok:
 				await adapter.mark_received(delivery)
+	var deliveries: Variant = response.get("local_deliveries", [])
+	if deliveries is Array:
+		for delivery: Variant in deliveries:
+			if delivery is Dictionary and delivery.get("sku") == "gs_hangar_supply_v1" and delivery.get("id") is String:
+				if _profile.redeem_hangar_supply(delivery.id).ok:
+					await adapter.mark_received(delivery.id)
 	return {"ok": true, "state": "success", "message": "Saldo konta odświeżone."}
 
 

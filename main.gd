@@ -15,6 +15,8 @@ const AndroidBillingAdapter := preload("res://commerce/android_billing_adapter.g
 const AndroidAdAdapter := preload("res://commerce/android_ad_adapter.gd")
 const DebugFlightMetrics := preload("res://ui/debug_flight_metrics.gd")
 const CommerceMetrics := preload("res://commerce/metrics.gd")
+const Graphics := preload("res://data/graphics_preferences.gd")
+const AndroidDiagnostics := preload("res://data/android_diagnostics.gd")
 
 var arena: Arena
 var ui: Interface
@@ -29,6 +31,8 @@ var billing_ledger_path := "user://test_play_orders.cfg"
 var billing: BillingService
 var ads: AdService
 var metrics := CommerceMetrics.new()
+var diagnostics := AndroidDiagnostics.new()
+var diagnostic_path := "user://galaxy-strike-diagnostics.json"
 var test_billing: TestBillingAdapter
 var test_ads: TestAdAdapter
 var _store_origin := "menu"
@@ -42,9 +46,12 @@ var _ad_message := ""
 var _play_test := false
 var _privacy_policy_url := ""
 var _debug_metrics: DebugFlightMetrics
+var _ad_fullscreen := false
+var _app_in_background := false
 
 
 func _ready() -> void:
+	var started := Time.get_ticks_usec()
 	if OS.has_feature("android"):
 		# Android builds before 0.6 carried simulated purchases. Keep those saves separate.
 		var bridge := Engine.get_singleton("GalaxyCommerce") if Engine.has_singleton("GalaxyCommerce") else null
@@ -56,6 +63,7 @@ func _ready() -> void:
 		progression.legacy_path = ""
 	progression.load_profile()
 	mix_preferences.load_settings()
+	_apply_graphics()
 	flight_audio = FlightAudio.new()
 	add_child(flight_audio)
 	_preview_audio(mix_preferences.levels)
@@ -86,6 +94,7 @@ func _ready() -> void:
 	ui.revive_declined.connect(_decline_revive)
 	_setup_commerce()
 	ui.show_menu(_menu_data())
+	diagnostics.note_setup("menu", Time.get_ticks_usec() - started)
 	if OS.get_cmdline_user_args().has("--diagnostics"):
 		_set_debug_metrics(true)
 
@@ -134,8 +143,14 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		_toggle_pause()
 	elif what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		if what == NOTIFICATION_APPLICATION_PAUSED:
+			_app_in_background = true
+			_sync_audio_focus()
 		_pause_mission()
 	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		if what == NOTIFICATION_APPLICATION_RESUMED:
+			_app_in_background = false
+			_sync_audio_focus()
 		if phase == "hangar" and is_instance_valid(ui):
 			ui.show_hangar(_hangar_data(), ui.hangar_tab())
 
@@ -306,6 +321,8 @@ func _setup_commerce() -> void:
 	ads.reward_ready.connect(_credit_ad)
 	ads.privacy_changed.connect(_ad_privacy_changed)
 	ads.activity.connect(metrics.record)
+	ads.diagnostic_changed.connect(_ad_diagnostic)
+	ads.fullscreen_changed.connect(_ad_presentation)
 	if OS.has_feature("android"):
 		billing.configure(progression, AndroidBillingAdapter.new())
 		ads.configure(AndroidAdAdapter.new())
@@ -315,6 +332,7 @@ func _setup_commerce() -> void:
 		billing.configure(progression, test_billing)
 		test_ads = TestAdAdapter.new()
 		ads.configure(test_ads)
+		_ad_diagnostic("sdk_simulator", "")
 	ui.ad_label = ads.label()
 	ui.ads_simulated = ads.adapter.is_test()
 
@@ -365,6 +383,7 @@ func _refresh_store() -> void:
 		"materials": progression.ad_eligible("materials", progression.ad_day()),
 		"pending": pending, "ad_busy": ads.busy(), "billing_busy": billing.busy(),
 		"simulation": billing.adapter.is_test(), "ad_label": ads.label(),
+		"preview_catalog": billing.adapter.preview_available(),
 		"catalog": billing.adapter.catalog(), "checkout_ready": billing.adapter.online_ready(),
 		"purchase_allowed": billing.adapter.checkout_available(), "paid_wallet": billing.account(),
 		"can_connect_account": billing.adapter.can_connect_account(),
@@ -517,8 +536,11 @@ func _credit_ad(placement: String, scope: String) -> void:
 		return
 	var outcome := progression.claim_rewarded_ad(placement, scope)
 	if outcome.ok:
+		_ad_diagnostic("granted", placement)
 		var fields := {"placement": placement, "source": ads.source()}
 		metrics.record("reward_granted", fields.merged(outcome.reward))
+	elif outcome.state == "save":
+		_ad_diagnostic("save_error", placement)
 	if outcome.ok and scope == _flight_id:
 		match placement:
 			"revive":
@@ -548,13 +570,16 @@ func _open_settings() -> void:
 	_settings = AudioSettings.new()
 	_settings.name = "AudioSettings"
 	_settings.initial_mix = mix_preferences.levels
+	_settings.initial_graphics = mix_preferences.graphics
 	_settings.privacy_required = ads.privacy_required
 	_settings.privacy_policy_url = _privacy_policy_url
-	_settings.diagnostics_available = OS.is_debug_build()
+	_settings.diagnostics_available = _diagnostics_available()
 	_settings.diagnostics_enabled = is_instance_valid(_debug_metrics)
+	_settings.diagnostic_summary = diagnostics.status()
 	_settings.mix_previewed.connect(_preview_audio)
 	_settings.privacy_requested.connect(ads.show_privacy)
 	_settings.diagnostics_changed.connect(_set_debug_metrics)
+	_settings.diagnostics_export_requested.connect(_export_diagnostics)
 	_settings.effects_sample_requested.connect(flight_audio.play_event.bind("equip"))
 	_settings.confirmed.connect(_confirm_settings)
 	_settings.cancelled.connect(_cancel_settings)
@@ -562,7 +587,7 @@ func _open_settings() -> void:
 
 
 func _set_debug_metrics(enabled: bool) -> void:
-	if not OS.is_debug_build() or enabled == is_instance_valid(_debug_metrics):
+	if not _diagnostics_available() or enabled == is_instance_valid(_debug_metrics):
 		return
 	if not enabled:
 		_debug_metrics.queue_free()
@@ -571,7 +596,50 @@ func _set_debug_metrics(enabled: bool) -> void:
 	_debug_metrics = DebugFlightMetrics.new()
 	_debug_metrics.name = "DebugFlightMetrics"
 	_debug_metrics.arena_provider = func() -> Node: return _combat_actor() if phase in ["combat", "pause"] else null
+	_debug_metrics.live_frame = func() -> bool: return phase == "combat" and not _app_in_background
+	_debug_metrics.diagnostics = diagnostics
 	ui.get_parent().add_child(_debug_metrics)
+
+
+func _diagnostics_available() -> bool:
+	return OS.is_debug_build() or (OS.has_feature("android") and _play_test)
+
+
+func _ad_diagnostic(state: String, placement: String) -> void:
+	if not diagnostics.record_ad(state, placement):
+		return
+	if OS.is_debug_build():
+		print("GalaxyStrikeQA ad=%s placement=%s" % [state, placement if not placement.is_empty() else "none"])
+	if is_instance_valid(_settings):
+		_settings.update_diagnostics(diagnostics.status())
+
+
+func _ad_presentation(showing: bool) -> void:
+	_ad_fullscreen = showing
+	_sync_audio_focus()
+
+
+func _sync_audio_focus() -> void:
+	if is_instance_valid(flight_audio):
+		flight_audio.set_external_silence(_ad_fullscreen or _app_in_background)
+
+
+func _export_diagnostics() -> void:
+	if not _diagnostics_available() or not is_instance_valid(_settings):
+		return
+	var bridge := Engine.get_singleton("GalaxyCommerce") if Engine.has_singleton("GalaxyCommerce") else null
+	var payload := JSON.stringify(diagnostics.report(mix_preferences.graphics, DisplayServer.window_get_size(), bridge), "  ")
+	var file := FileAccess.open(diagnostic_path, FileAccess.WRITE)
+	if file == null:
+		_settings.show_export_status("Nie udało się utworzyć raportu diagnostycznego.")
+		return
+	file.store_string(payload)
+	file.close()
+	_settings.show_export_status("Zapisano galaxy-strike-diagnostics.json.")
+	if bridge != null:
+		bridge.shareDiagnostics(payload)
+	elif DisplayServer.get_name() != "headless":
+		DisplayServer.clipboard_set(payload)
 
 
 func _ad_privacy_changed(required: bool, message: String) -> void:
@@ -583,11 +651,21 @@ func _preview_audio(values: Vector3) -> void:
 	flight_audio.set_mix(values.x, values.y, values.z)
 
 
-func _confirm_settings(values: Vector3) -> void:
-	if not mix_preferences.save_settings(values):
+func _confirm_settings(values: Vector3, visual: Dictionary) -> void:
+	if not mix_preferences.save_settings(values, visual):
 		_settings.show_save_error()
 		return
+	_apply_graphics()
 	_close_settings()
+
+
+func _apply_graphics() -> void:
+	var tuning := Graphics.tuning(mix_preferences.graphics)
+	if DisplayServer.get_name() != "headless":
+		Engine.max_fps = tuning.fps_cap
+	var actor := _combat_actor()
+	if is_instance_valid(actor) and actor.has_method("set_visual_settings"):
+		actor.set_visual_settings(tuning)
 
 
 func _cancel_settings() -> void:

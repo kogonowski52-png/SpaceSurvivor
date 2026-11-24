@@ -22,6 +22,7 @@ const Display = preload("res://assets/fonts/Oxanium.ttf")
 const Mission := preload("res://data/missions/peryhelium.tres")
 const Hangar := preload("res://ui/hangar.gd")
 const Store := preload("res://ui/premium_store.gd")
+const SafeLayout := preload("res://ui/safe_layout.gd")
 const PAGE_MARGIN := 28.0
 const RARITIES := {
 	"common": { "title": "POSPOLITA", "accent": Palette.MUTED },
@@ -724,25 +725,7 @@ func _safe_content(parent: Control, margin_x: float = PAGE_MARGIN, margin_y: flo
 	var region := Control.new()
 	region.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(region)
-	region.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-
-	var margin_left := margin_x
-	var margin_right := margin_x
-	var margin_top := margin_y
-	var margin_bottom := margin_y
-	if OS.has_feature("android"):
-		var safe := DisplayServer.get_display_safe_area()
-		var screen := DisplayServer.screen_get_size()
-		if safe.has_area() and screen.x > 0 and screen.y > 0:
-			var scale := get_viewport_rect().size / Vector2(screen)
-			margin_left += safe.position.x * scale.x
-			margin_top += safe.position.y * scale.y
-			margin_right += maxf(0.0, screen.x - safe.end.x) * scale.x
-			margin_bottom += maxf(0.0, screen.y - safe.end.y) * scale.y
-	region.offset_left = margin_left
-	region.offset_top = margin_top
-	region.offset_right = -margin_right
-	region.offset_bottom = -margin_bottom
+	SafeLayout.fill(region, Vector2(margin_x, margin_y))
 	return region
 
 

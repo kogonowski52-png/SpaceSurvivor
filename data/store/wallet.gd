@@ -34,17 +34,21 @@ static func redeem_play(draft: Dictionary, id: String, token: String) -> Diction
 	return _redeem_test(draft, id, offer, "test:" + token.sha256_text())
 
 
-static func redeem_starter_credits(draft: Dictionary, delivery: String) -> Dictionary:
+static func redeem_local_delivery(draft: Dictionary, id: String, delivery: String) -> Dictionary:
+	if id not in ["starter", "hangar_supply"]:
+		return failure("invalid", "Nieznana dostawa materiałów lub Credits.")
 	if delivery.length() != 64 or not delivery.is_valid_hex_number():
 		return failure("invalid", "Identyfikator rozliczenia Google Play jest nieprawidłowy.")
 	var key := "play:" + delivery
 	if draft.commerce.receipts.has(key):
-		if draft.commerce.receipts[key] != "starter":
+		if draft.commerce.receipts[key] != id:
 			return failure("invalid", "Potwierdzenie należy do innego produktu.")
-		return {"ok": true, "changed": false, "state": "duplicate", "message": "Credits są w profilu."}
-	draft.commerce.receipts[key] = "starter"
-	draft.coins += int(Offers.OFFERS.starter.coins)
-	return success("Odebrano dodatek Credits z pakietu startowego.")
+		return {"ok": true, "changed": false, "state": "duplicate", "message": "Dostawa została zapisana w profilu."}
+	draft.commerce.receipts[key] = id
+	var offer: Dictionary = Offers.OFFERS[id]
+	draft.coins += int(offer.coins)
+	draft.materials += int(offer.get("materials", 0))
+	return success("Odebrano dodatek · %s" % offer.title)
 
 
 static func _redeem_test(draft: Dictionary, id: String, offer: Dictionary, key: String) -> Dictionary:
@@ -87,8 +91,8 @@ static func claim_season(draft: Dictionary, id: String, account_pass: bool = fal
 	return success("Odebrano nagrodę Helionu.")
 
 
-static func set_effect(draft: Dictionary, id: String) -> Dictionary:
-	if not Offers.EFFECTS.has(id) or id not in draft.commerce.entitlements:
+static func set_effect(draft: Dictionary, id: String, account_offers: Array) -> Dictionary:
+	if not Offers.EFFECTS.has(id) or (id not in draft.commerce.entitlements and id not in account_offers):
 		return failure("locked", "Ten efekt lotu nie jest jeszcze dostępny.")
 	var equipped: bool = draft.commerce.effect != id
 	draft.commerce.effect = id if equipped else ""

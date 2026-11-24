@@ -12,6 +12,7 @@ class VerifiedFixture extends Adapter:
 	var confirmations: Array[String] = []
 	var restore_state := "restored"
 	var checkout := true
+	var draft := false
 	var checkouts := 0
 	var spends := 0
 
@@ -20,6 +21,9 @@ class VerifiedFixture extends Adapter:
 
 	func checkout_available() -> bool:
 		return checkout
+
+	func preview_available() -> bool:
+		return draft
 
 	func begin_purchase(id: String, _sku: String) -> void:
 		checkouts += 1
@@ -133,6 +137,27 @@ func _run() -> void:
 	_billing.refresh_balance()
 	_check(_profile.sortie().skin_id.is_empty() and "starter" not in _profile.snapshot().profile.commerce.entitlements,
 		"refund removes account-issued rights and unequips their use without corrupting local progress")
+
+	var before := _provider.checkouts
+	_billing.buy("pilot_fx_prism")
+	_check(_provider.checkouts == before, "draft checkout remains locked with only the legacy license flag")
+	_provider.draft = true
+	_provider.batch = [{"sku": "gs_pilot_fx_prism_v1", "token": "play-token-prism", "stage": "purchased"}]
+	_provider.proof = _wallet(20, 5, ["pilot_fx_prism", "hangar_supply"])
+	_provider.proof.merge({"sku": "gs_pilot_fx_prism_v1", "credited": true})
+	var supply := "4".repeat(64)
+	_provider.proof.local_deliveries = [{"id": supply, "sku": "gs_hangar_supply_v1"}, {"id": bonus, "sku": "gs_hangar_supply_v1"}]
+	_billing.buy("pilot_fx_prism")
+	_check(_provider.checkouts == before + 1 and _profile.shop_effect("pilot_fx_prism").ok
+		and _profile.sortie().effect_id == "pilot_fx_prism", "approved test draft provisions an account-scoped effect")
+	_check(_profile.snapshot().profile.coins == 1500 and _profile.snapshot().profile.materials == 230
+		and _provider.confirmations == [bonus, bonus, supply], "typed hangar delivery cannot reuse a starter receipt")
+	_provider.wallet_result = _provider.proof
+	_billing.refresh_balance()
+	_check(_profile.snapshot().profile.materials == 230, "replayed test supply delivery does not mint materials")
+	_provider.wallet_result = _wallet(20, 6)
+	_billing.refresh_balance()
+	_check(_profile.sortie().effect_id.is_empty(), "a revoked test cosmetic stops appearing in future sorties")
 
 	print("QA Play wallet: %d failure(s)" % _failures)
 	quit(0 if _failures == 0 else 1)

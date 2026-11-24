@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from play_server import DAY_MS, GooglePlay, Ledger, Rejected, ThreadingHTTPServer, handler
+from play_server import CRYSTAL_GRANTS, DAY_MS, DRAFT_PRODUCTS, SETTLEMENT, GooglePlay, Ledger, Rejected, ThreadingHTTPServer, handler
 
 A = "a" * 32
 B = "b" * 32
@@ -33,7 +33,7 @@ class PlayFixture:
         self.calls.append((sku, token))
         if self.failure:
             raise Rejected(503, "google_unavailable")
-        if sku == CONSUMABLE:
+        if SETTLEMENT[sku] == "consume":
             self.data["productLineItem"][0]["productOfferDetails"]["consumptionState"] = "CONSUMPTION_STATE_CONSUMED"
         else:
             self.data["acknowledgementState"] = "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"
@@ -222,6 +222,58 @@ class PurchaseWalletTest(unittest.TestCase):
         self.assertEqual(self.ledger.wallet("pilot", A)["wallet"], after)
         self.ledger.finish_once()
         self.assertEqual(self.google.calls, [])
+
+    def test_whole_test_catalog_checks_pending_replay_settlement_and_refund(self):
+        self.ledger = Ledger(self.path, self.google, self.key, True, license_checkout=True, draft_checkout=True)
+        for sku, settlement in SETTLEMENT.items():
+            with self.subTest(sku=sku):
+                token = "test-catalog-token-" + sku
+                self.purchase(sku)
+                self.google.data["purchaseStateContext"]["purchaseState"] = "PENDING"
+                with self.assertRaisesRegex(Rejected, "purchase_not_completed"):
+                    self.ledger.verify("pilot", A, sku, token)
+                self.google.data["purchaseStateContext"]["purchaseState"] = "PURCHASED"
+                first = self.ledger.verify("pilot", A, sku, token)
+                self.assertTrue(first["credited"])
+                self.assertEqual(first["wallet"]["crystals"], CRYSTAL_GRANTS.get(sku, 0))
+                self.ledger.finish_once()
+                self.assertEqual(self.google.calls[-1], (sku, token))
+                if settlement == "consume":
+                    self.assertEqual(self.google.data["productLineItem"][0]["productOfferDetails"]["consumptionState"],
+                                     "CONSUMPTION_STATE_CONSUMED")
+                else:
+                    self.assertEqual(self.google.data["acknowledgementState"], "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED")
+                    self.assertTrue(first["wallet"]["offers"])
+                again = self.ledger.verify("pilot", B, sku, token)
+                self.assertFalse(again["credited"])
+                self.assertEqual(again["wallet"], first["wallet"])
+                self.ledger.record_void(token)
+                self.ledger.record_void(token)
+                after = self.ledger.wallet("pilot", A)
+                self.assertEqual(after["wallet"]["crystals"], 0)
+                self.assertEqual(after["wallet"]["offers"], [])
+
+    def test_drafts_require_test_opt_in_and_hangar_delivery_stays_device_scoped(self):
+        sku = "gs_hangar_supply_v1"
+        self.purchase(sku)
+        self.assertIn(sku, DRAFT_PRODUCTS)
+        with self.assertRaisesRegex(Rejected, "payments_disabled"):
+            self.ledger.verify("pilot", A, sku, TOKEN)
+        opened = Ledger(self.path, self.google, self.key, True, license_checkout=True, draft_checkout=True)
+        first = opened.verify("pilot", A, sku, TOKEN)
+        delivery = hashlib.sha256(TOKEN.encode()).hexdigest()
+        self.assertEqual(first["credits_deliveries"], [])
+        self.assertEqual(first["local_deliveries"], [{"id": delivery, "sku": sku}])
+        self.assertEqual(opened.wallet("pilot", B)["local_deliveries"], [])
+        with self.assertRaisesRegex(Rejected, "unknown_delivery"):
+            opened.received("pilot", B, delivery)
+        opened.received("pilot", A, delivery)
+        closed = Ledger(self.path, self.google, self.key, True)
+        self.assertFalse(closed.verify("pilot", B, sku, TOKEN)["credited"])
+        self.assertEqual(closed.wallet("pilot", A)["local_deliveries"], [])
+        self.assertEqual(closed.wallet("pilot", B)["wallet"]["offers"], ["hangar_supply"])
+        closed.record_void(TOKEN)
+        self.assertEqual(closed.wallet("pilot", A)["wallet"]["offers"], [])
 
     def test_voided_responses_follow_google_page_token(self):
         play = GooglePlay(None)

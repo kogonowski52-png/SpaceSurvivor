@@ -18,8 +18,17 @@ PRODUCTS = {
     "gs_crystals_900": "consume",
     "gs_helion_pass_v1": "acknowledge",
 }
+DRAFT_PRODUCTS = {
+    "gs_arsenal_v1": "arsenal_pilot",
+    "gs_hangar_supply_v1": "hangar_supply",
+    "gs_skin_specter_noctis_v1": "skin_specter_noctis",
+    "gs_skin_aurora_vesper_v1": "skin_aurora_vesper",
+    "gs_pilot_fx_prism_v1": "pilot_fx_prism",
+}
+SETTLEMENT = {**PRODUCTS, **{sku: "acknowledge" for sku in DRAFT_PRODUCTS}}
 CRYSTAL_GRANTS = {"gs_starter_v1": 120, "gs_crystals_100": 100, "gs_crystals_350": 350, "gs_crystals_900": 900}
-PERMANENT_OFFERS = {"gs_starter_v1": "starter", "gs_helion_pass_v1": "season_helion"}
+PERMANENT_OFFERS = {"gs_starter_v1": "starter", "gs_helion_pass_v1": "season_helion", **DRAFT_PRODUCTS}
+LOCAL_DELIVERIES = {"gs_starter_v1", "gs_hangar_supply_v1"}
 WALLET_OFFERS = {"skin_ion": 45, "skin_frost": 55, "equipment_signal": 80}
 PACKAGE = "com.galaxystrike.spacesurvivor"
 SCOPES = ["https://www.googleapis.com/auth/androidpublisher"]
@@ -63,7 +72,7 @@ class GooglePlay:
         return self._request("GET", "/purchases/productsv2/tokens/" + quote(token, safe=""))
 
     def finish(self, sku, token):
-        operation = PRODUCTS[sku]
+        operation = SETTLEMENT[sku]
         body = {} if operation == "acknowledge" else None
         self._request("POST", f"/purchases/products/{sku}/tokens/{quote(token, safe='')}:{operation}", body)
 
@@ -85,12 +94,13 @@ class GooglePlay:
 
 
 class Ledger:
-    def __init__(self, database, play, account_key, test_only, license_checkout=False):
+    def __init__(self, database, play, account_key, test_only, license_checkout=False, draft_checkout=False):
         self.database = database
         self.play = play
         self.account_key = account_key
         self.test_only = test_only
         self.license_checkout = test_only and license_checkout
+        self.draft_checkout = self.license_checkout and draft_checkout
         with closing(self._open()) as db:
             db.execute("PRAGMA journal_mode=WAL")
         with closing(self._open()) as db, db:
@@ -160,18 +170,24 @@ class Ledger:
         offer = items[0].get("productOfferDetails", {})
         if offer.get("quantity") != 1 or offer.get("refundableQuantity", 1) != 1:
             raise Rejected(422, "unsupported_quantity")
-        if PRODUCTS[sku] == "consume":
+        if SETTLEMENT[sku] == "consume":
             return offer.get("consumptionState") == "CONSUMPTION_STATE_CONSUMED"
         return purchase.get("acknowledgementState") == "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"
 
     def verify(self, player, installation, sku, token):
         if not self.test_only:
             raise Rejected(403, "payments_disabled")
-        if not isinstance(sku, str) or sku not in PRODUCTS or not isinstance(token, str) or not 8 <= len(token) <= 2048:
+        if not isinstance(sku, str) or sku not in SETTLEMENT or not isinstance(token, str) or not 8 <= len(token) <= 2048:
             raise Rejected(400, "invalid_request")
+        delivery = hashlib.sha256(token.encode()).hexdigest()
+        if sku in DRAFT_PRODUCTS and not self.draft_checkout:
+            with closing(self._open()) as db:
+                historic = db.execute("SELECT 1 FROM orders WHERE id = ? AND player = ? AND sku = ?",
+                                      (delivery, player, sku)).fetchone()
+            if not historic:
+                raise Rejected(403, "payments_disabled")
         purchase = self.play.purchase(token)
         platform_finished = self._check_purchase(purchase, player, sku, token)
-        delivery = hashlib.sha256(token.encode()).hexdigest()
 
         with closing(self._open()) as db, db:
             db.execute("BEGIN IMMEDIATE")
@@ -183,7 +199,7 @@ class Ledger:
                 # A consumed/acknowledged orphan or a 0.6 row has no safely reconstructible balance.
                 already_owned = PERMANENT_OFFERS.get(sku) in self._owned(db, player)
                 credited = not platform_finished and not already_owned
-                bonus = credited and sku == "gs_starter_v1"
+                bonus = credited and sku in LOCAL_DELIVERIES
                 db.execute("""INSERT INTO orders
                     (id, player, installation, sku, token, received, finalized, local_credit_bonus)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -212,12 +228,13 @@ class Ledger:
     def _account_data(self, db, player, installation):
         balance, revision = db.execute("SELECT coalesce(sum(amount), 0), coalesce(max(seq), 0) FROM wallet_events WHERE player = ?",
                                        (player,)).fetchone()
-        bonus = db.execute("""SELECT id FROM orders WHERE player = ? AND installation = ?
-                              AND received = 0 AND voided = 0 AND local_credit_bonus = 1""",
-                           (player, installation))
+        bonuses = db.execute("""SELECT id, sku FROM orders WHERE player = ? AND installation = ?
+                                AND received = 0 AND voided = 0 AND local_credit_bonus = 1""",
+                             (player, installation)).fetchall()
         return {"wallet": {"crystals": max(0, balance), "debt": max(0, -balance), "revision": revision,
                            "offers": sorted(self._owned(db, player, include_spends=balance >= 0))},
-                "credits_deliveries": [row["id"] for row in bonus]}
+                "credits_deliveries": [row["id"] for row in bonuses if row["sku"] == "gs_starter_v1"],
+                "local_deliveries": [{"id": row["id"], "sku": row["sku"]} for row in bonuses if row["sku"] == "gs_hangar_supply_v1"]}
 
     def wallet(self, player, installation):
         with closing(self._open()) as db:
@@ -324,7 +341,8 @@ def handler(ledger, sessions):
 
         def _route(self, player, data):
             if self.path == "/v2/play/session":
-                return {"obfuscated_account_id": ledger.account_id(player), "license_checkout": ledger.license_checkout}
+                return {"obfuscated_account_id": ledger.account_id(player), "license_checkout": ledger.license_checkout,
+                        "draft_checkout": ledger.draft_checkout}
             install = data.get("installation")
             if not isinstance(install, str) or not re.fullmatch(r"[0-9a-f]{32}", install):
                 raise Rejected(400, "invalid_installation")
@@ -367,7 +385,8 @@ def main():
         raise SystemExit("Set STRIKE_PLAY_MODE to test or live.")
     credentials, _ = google.auth.default(scopes=SCOPES)
     ledger = Ledger(os.environ["STRIKE_PLAY_DATABASE"], GooglePlay(credentials), account_key, mode == "test",
-                    os.environ.get("STRIKE_ENABLE_LICENSE_CHECKOUT") == "1")
+                    os.environ.get("STRIKE_ENABLE_LICENSE_CHECKOUT") == "1",
+                    os.environ.get("STRIKE_ENABLE_DRAFT_CATALOG") == "1")
     stop = threading.Event()
 
     def settle_play():

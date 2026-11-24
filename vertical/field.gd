@@ -72,6 +72,7 @@ var _effect: Dictionary = {}
 var _hull: Texture2D
 var _hull_frame := Rect2()
 var _sky := FlightSky.new()
+var _effect_intensity := 1.0
 var _storm_light := 0.0
 var _events: Array = []
 var _event_index := 0
@@ -146,6 +147,17 @@ func configure(stage_id: String, sortie: Dictionary) -> void:
 	_hp = _max_hp
 
 
+func set_visual_settings(tuning: Dictionary) -> void:
+	_effect_intensity = tuning.intensity
+	_sky.star_count = tuning.stars
+	fx.spark_density = tuning.sparks
+	fx.arc_segments = tuning.circle
+	fx.dual_ring = tuning.extra_ring
+	fx.draw_debris = tuning.debris
+	fx.decorative_intensity = tuning.intensity
+	queue_redraw()
+
+
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_hull = PilotArt.hull(_ship_id)
@@ -210,6 +222,10 @@ func set_suspended(value: bool) -> void:
 
 func active_enemy_count() -> int:
 	return _enemies.size() + int(boss != null)
+
+
+func active_shot_count() -> int:
+	return _shots.size()
 
 
 func can_revive() -> bool:
@@ -751,7 +767,7 @@ func _draw() -> void:
 		return
 	var view_size := get_viewport_rect().size / maxf(scale.x, 0.01)
 	var energy := maxf(_storm_light, maxf(_charge_fx * 0.76, minf(0.80, _boss_break * 0.43)))
-	_sky.draw(self, Rect2((SIZE - view_size) * 0.5, view_size), _seconds, player_position.x, energy)
+	_sky.draw(self, Rect2((SIZE - view_size) * 0.5, view_size), _seconds, player_position.x, energy * _effect_intensity)
 	var visible := PLAY_AREA.grow(24.0)
 	fx.render_capital_breaks(self, Vector2.ZERO, visible, player_position)
 	for enemy in _enemies:

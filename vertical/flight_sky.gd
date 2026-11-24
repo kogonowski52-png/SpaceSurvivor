@@ -11,6 +11,7 @@ var _orbit := Vector2.ZERO
 var _tone := Color.WHITE
 var _stars := PackedVector2Array()
 var _magnetic := false
+var star_count := 60
 
 
 func configure(stage: Dictionary) -> void:
@@ -21,7 +22,7 @@ func configure(stage: Dictionary) -> void:
 	_magnetic = str(stage.get("scape", "")) == "magnetic"
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 726_571 + int(stage.threat) * 7
-	for index in 60:
+	for index in 78:
 		_stars.append(Vector2(rng.randf_range(0.0, SIZE.x), rng.randf_range(0.0, STAR_LOOP)))
 
 
@@ -41,7 +42,9 @@ func draw(canvas: Node2D, view: Rect2, time: float, pilot_x: float, energy: floa
 
 	var moon := _orbit + Vector2(-pilot_x * 0.043, fposmod(time * 8.4 + _orbit.y + 240.0, 1_500.0) - 240.0 - _orbit.y)
 	var diameter := _planet.get_size().normalized() * 344.0
-	canvas.draw_texture_rect(_planet, Rect2(moon - diameter * 0.5, diameter), false, Color(0.69, 0.75, 0.86, 0.72))
+	var orbit := Rect2(moon - diameter * 0.5, diameter)
+	if view.intersects(orbit):
+		canvas.draw_texture_rect(_planet, orbit, false, Color(0.69, 0.75, 0.86, 0.72))
 	if _magnetic and energy > 0.1:
 		for side: int in [-1, 1]:
 			var arc := PackedVector2Array()
@@ -50,7 +53,7 @@ func draw(canvas: Node2D, view: Rect2, time: float, pilot_x: float, energy: floa
 				arc.append(Vector2(x, 56.0 + segment * 72.0))
 			canvas.draw_polyline(arc, Color("#a6ecfc", energy * 0.27), 2.0, true)
 
-	for index in _stars.size():
+	for index in mini(star_count, _stars.size()):
 		var layer := index % STAR_LAYERS.size()
 		var point := _stars[index]
 		point.y = fposmod(point.y + time * float(STAR_LAYERS[layer]), STAR_LOOP) - 165.0

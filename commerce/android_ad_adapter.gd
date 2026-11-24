@@ -5,10 +5,12 @@ var _bridge: Object
 
 func _ready() -> void:
 	if not Engine.has_singleton("GalaxyCommerce"):
+		diagnostic.emit("", "sdk_unavailable")
 		return
 	_bridge = Engine.get_singleton("GalaxyCommerce")
 	_bridge.connect("ad_result", _on_ad_result)
 	_bridge.connect("ad_privacy", _on_privacy)
+	_bridge.connect("ad_diagnostic", diagnostic.emit)
 	_bridge.initAds()
 
 

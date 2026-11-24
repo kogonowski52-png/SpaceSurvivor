@@ -1,6 +1,6 @@
 # Galaxy Strike — Próg Helionu
 
-Pionowa strzelanka 2D w Godot 4.7.2 stable. Pierwszy rozdział ma dziesięć lotów w czterech sektorach oraz trzy okręty dowodzenia. Zacznij w Echu pasa, przebij się przez Wrakowisko Tytana i pokonaj Nadira w Sercu Otchłani. Atlas pozwala powtarzać ukończone loty i poprawiać wynik oraz ocenę gwiazdkową. [Raport 1.1.0 i APK](VERSION_VERTICAL_1_1_0.md) · [Raport kampanii 1.0.0](VERSION_VERTICAL_1_0_0.md)
+Pionowa strzelanka 2D w Godot 4.7.2 stable. Pierwszy rozdział ma dziesięć lotów w czterech sektorach oraz trzy okręty dowodzenia. Zacznij w Echu pasa, przebij się przez Wrakowisko Tytana i pokonaj Nadira w Sercu Otchłani. Atlas pozwala powtarzać ukończone loty i poprawiać wynik oraz ocenę gwiazdkową. [Kandydat 1.2.0 i APK](VERSION_VERTICAL_1_2_0.md) · [Monetyzacja 1.1.0](VERSION_VERTICAL_1_1_0.md) · [Kampania 1.0.0](VERSION_VERTICAL_1_0_0.md)
 
 ## Sterowanie
 
@@ -33,12 +33,10 @@ Pierwszy test prowadzi pilota przez dziesięć lotów i sprawdza migrację, zapi
 
 ## Eksport Android
 
-Zainstaluj szablony eksportu dokładnie dla Godot 4.7.2 stable. W edytorze ustaw JDK 17 i Android SDK 36, a następnie przygotuj natywny most. [Konfiguracja Androida i podpisywanie](ANDROID_INTEGRATION.md)
+Zainstaluj szablony eksportu dokładnie dla Godot 4.7.2 stable. W edytorze ustaw JDK 17 i Android SDK 36. [AdMob i UMP](ADMOB_SETUP_PL.md) · [Licencyjny Billing i podpisywanie](PLAY_BILLING_SETUP_PL.md)
 
 ```sh
-mkdir -p build/android
-bash tools/prepare_android.sh
-GALAXY_PLAY_MODE=test godot --headless --export-debug Android build/android/GalaxyStrike-Vertical.apk
+bash tools/build_android_rc.sh debug build/android/GalaxyStrike-Vertical.apk
 ```
 
 Preset `Android` generuje debug APK dla arm64-v8a i x86_64. Aplikacja zachowuje identyfikator `com.galaxystrike.spacesurvivor`. Aktualizacja istniejącej instalacji wymaga zgodnego podpisu. Do równoległego testowania 0.7.x i kampanii użyj oddzielnych profili Android albo urządzeń.

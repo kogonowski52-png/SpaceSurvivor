@@ -2,9 +2,12 @@ extends "res://tests/smoke.gd"
 
 const PATH := "user://qa-release-relaunch"
 
+var _vertical := false
+
 
 func _run() -> void:
-	var entry := load("res://main.tscn") as PackedScene
+	_vertical = OS.get_cmdline_user_args().has("--vertical")
+	var entry := load("res://vertical/main.tscn" if _vertical else "res://main.tscn") as PackedScene
 	game = entry.instantiate()
 	game.progression.save_path = PATH
 	game.progression.legacy_path = ""
@@ -12,20 +15,20 @@ func _run() -> void:
 	await _frames(8)
 	if OS.get_cmdline_user_args().has("--verify-relaunch"):
 		var profile: Dictionary = game.progression.snapshot().profile
-		_check(game.phase == "menu" and game.arena == null, "the new process opens a clean menu")
+		_check(game.phase == "menu" and game._combat_actor() == null, "the new process opens a clean menu")
 		_check(profile.levels.get("peregrine", {}).get("hull") == 1, "committed upgrade survives process termination")
 		_check(profile.totals.flights == 0, "an interrupted flight does not award a result")
-		if await _click("LaunchButton"):
-			_check(game.phase == "combat" and _seconds() < 2.0, "fresh sortie starts after process relaunch")
+		if await _enter_flight():
+			_check(game.phase == "combat" and _flight_time() < 2.0, "fresh sortie starts after process relaunch")
 		quit(0 if failures == 0 else 1)
 		return
 	_check(game.progression.apply("upgrade", "hull").ok, "commits the fixture upgrade to disk")
-	if await _click("LaunchButton"):
+	if await _enter_flight():
 		await _steps(12)
 		game.notification(NOTIFICATION_APPLICATION_FOCUS_OUT)
-		var paused_at := _seconds()
+		var paused_at := _flight_time()
 		await _steps(12)
-		_check(game.phase == "pause" and is_equal_approx(paused_at, _seconds()), "focus loss pauses the flight clock")
+		_check(game.phase == "pause" and is_equal_approx(paused_at, _flight_time()), "focus loss pauses the flight clock")
 		game.notification(NOTIFICATION_APPLICATION_FOCUS_IN)
 		_check(game.phase == "pause", "focus return preserves the pause")
 		await _click("ResumeButton")
@@ -34,3 +37,13 @@ func _run() -> void:
 		quit(1)
 		return
 	print("READY_FOR_TERMINATION")
+
+
+func _enter_flight() -> bool:
+	if not await _click("LaunchButton"):
+		return false
+	return await _click("LaunchStage_echo") if _vertical else true
+
+
+func _flight_time() -> float:
+	return game.flight._seconds if _vertical else _seconds()

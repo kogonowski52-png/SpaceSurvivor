@@ -3,6 +3,7 @@ extends Control
 signal action_requested(action: String, value: String)
 
 const Palette := preload("res://ui/palette.gd")
+const SafeLayout := preload("res://ui/safe_layout.gd")
 const Catalog := preload("res://data/progression_catalog.gd")
 const ShopCatalog := preload("res://data/store/commerce_catalog.gd")
 const Pages := preload("res://ui/hangar_pages.gd")
@@ -135,14 +136,7 @@ func _background() -> void:
 func _build_shell() -> void:
 	var shell := _column(9)
 	add_child(shell)
-	shell.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var safe := DisplayServer.get_display_safe_area() if OS.has_feature("android") else Rect2i()
-	var screen := DisplayServer.screen_get_size() if safe.has_area() else Vector2i.ONE
-	var scale := get_viewport_rect().size / Vector2(screen)
-	shell.offset_left = 22.0 + safe.position.x * scale.x
-	shell.offset_right = -22.0 - (screen.x - safe.end.x) * scale.x if safe.has_area() else -22.0
-	shell.offset_top = 20.0 + safe.position.y * scale.y
-	shell.offset_bottom = -20.0 - (screen.y - safe.end.y) * scale.y if safe.has_area() else -20.0
+	SafeLayout.fill(shell, Vector2(22.0, 20.0))
 
 	var header := _row(8)
 	shell.add_child(header)

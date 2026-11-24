@@ -53,6 +53,7 @@ var _effects := 0.80
 var _variation_index := 0
 var _has_audio_output := false
 var _frontier := false
+var _external_silence := false
 
 
 func _ready() -> void:
@@ -105,6 +106,13 @@ func set_mix(master: float, music: float, effects: float) -> void:
 		_players[event].volume_db = _volume_db(base, _master * _effects)
 
 
+func set_external_silence(value: bool) -> void:
+	if _external_silence == value:
+		return
+	_external_silence = value
+	set_mix(_master, _music, _effects)
+
+
 func set_scene(scene: String) -> void:
 	_requested_scene = scene
 	var strength := 1.0
@@ -140,7 +148,7 @@ func set_scene(scene: String) -> void:
 
 
 func play_event(event: String) -> void:
-	if not _has_audio_output or _master <= 0.0 or _effects <= 0.0 or not EFFECTS.has(event):
+	if _external_silence or not _has_audio_output or _master <= 0.0 or _effects <= 0.0 or not EFFECTS.has(event):
 		return
 	var spec: Array = EFFECTS[event]
 	var now := Time.get_ticks_msec() * 0.001
@@ -168,4 +176,4 @@ func _apply_music_gain(gains: Vector2) -> void:
 
 
 func _volume_db(base: float, multiplier: float) -> float:
-	return SILENT_DB if multiplier <= 0.0001 else maxf(SILENT_DB, base + linear_to_db(multiplier))
+	return SILENT_DB if _external_silence or multiplier <= 0.0001 else maxf(SILENT_DB, base + linear_to_db(multiplier))

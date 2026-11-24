@@ -26,6 +26,7 @@ var _flares: Array[Flare] = []
 var _debris: Array[Debris] = []
 var _next_flare := 0
 var _next_debris := 0
+var draw_debris := true
 
 
 func prepare() -> void:
@@ -56,6 +57,8 @@ func blast(at: Vector2, extent: float, ionized := false, span := 0.44) -> void:
 
 
 func shatter(hull: Texture2D, at: Vector2, frame: Rect2, angle: float) -> void:
+	if not draw_debris:
+		return
 	var slot := _debris[_next_debris]
 	_next_debris = (_next_debris + 1) % MAX_DEBRIS
 	slot.at = at
@@ -67,7 +70,7 @@ func shatter(hull: Texture2D, at: Vector2, frame: Rect2, angle: float) -> void:
 
 func draw_flares(canvas: Node2D, view: Rect2, pilot: Vector2) -> void:
 	for wreck in _debris:
-		if wreck.life <= 0.0 or not view.has_point(wreck.at):
+		if not draw_debris or wreck.life <= 0.0 or not view.has_point(wreck.at):
 			continue
 		var age := 1.0 - wreck.life / 0.48
 		var image := wreck.hull.get_size()
@@ -89,6 +92,7 @@ func draw_flares(canvas: Node2D, view: Rect2, pilot: Vector2) -> void:
 		var alpha := smoothstep(0.0, 0.11, progress) * (1.0 - smoothstep(0.22, 1.0, progress))
 		if flare.at.distance_squared_to(pilot) < 103.0 * 103.0:
 			alpha *= 0.48
+		alpha *= lerpf(0.61, 1.0, decorative_intensity)
 		canvas.draw_set_transform(flare.at, flare.angle)
 		canvas.draw_texture_rect(flare.tex, Rect2(Vector2(-height * 0.5, -height * 0.5), Vector2(height, height)), false,
 			Color(1.0, 0.96, 0.94, alpha))

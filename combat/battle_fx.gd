@@ -43,6 +43,10 @@ var _sparks: Array[Spark] = []
 var _rings: Array[Ring] = []
 var _spark_pool: Array[Spark] = []
 var _ring_pool: Array[Ring] = []
+var spark_density := 1.0
+var arc_segments := 36
+var dual_ring := true
+var decorative_intensity := 1.0
 
 
 func prepare() -> void:
@@ -139,7 +143,8 @@ func step(delta: float) -> void:
 
 
 func burst(position: Vector2, tint: Color, count: int, impulse: float, direction := Vector2.ZERO) -> void:
-	for index in mini(count, MAX_SPARKS - _sparks.size()):
+	var adjusted := maxi(1, roundi(count * spark_density)) if count > 0 else 0
+	for index in mini(adjusted, MAX_SPARKS - _sparks.size()):
 		var spark: Spark = Spark.new() if _spark_pool.is_empty() else _spark_pool.pop_back()
 		spark.position = position
 		var drift := Vector2.from_angle(_rng.randf_range(0.0, TAU)) * _rng.randf_range(0.16, 1.0)
@@ -172,15 +177,15 @@ func render(canvas: Node2D, offset: Vector2, view: Rect2, pilot: Vector2) -> voi
 		var opacity := pow(1.0 - progress, 1.4)
 		var clearance := absf(wave.position.distance_to(pilot) - radius)
 		var separation := smoothstep(22.0, 83.0, clearance)
-		canvas.draw_arc(origin, radius, 0.0, TAU, 36, Color(wave.tint, opacity * lerpf(0.22, 0.82, separation)), 1.7, true)
-		if separation > 0.25:
+		canvas.draw_arc(origin, radius, 0.0, TAU, arc_segments, Color(wave.tint, opacity * lerpf(0.22, 0.82, separation)), 1.7, true)
+		if dual_ring and separation > 0.25:
 			canvas.draw_arc(origin, radius * 0.89, 0.0, TAU, 32, Color(WHITE_HOT, opacity * separation * 0.33), 1.0, true)
 	for spark in _sparks:
 		var origin := spark.position + offset
 		if not view.has_point(origin):
 			continue
 		var close_to_pilot := spark.position.distance_squared_to(pilot) < PILOT_CLEARANCE_SQ
-		var opacity := spark.life / spark.duration * (0.26 if close_to_pilot else 0.84)
+		var opacity := spark.life / spark.duration * (0.26 if close_to_pilot else 0.84) * decorative_intensity
 		if opacity > 0.08:
 			canvas.draw_line(origin - spark.velocity * (0.019 if close_to_pilot else 0.031), origin, Color(spark.tint, opacity), 1.6, true)
 

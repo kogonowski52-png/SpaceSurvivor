@@ -160,6 +160,11 @@ func _active_skin(ship: String) -> String:
 	return skin if skin in _data.commerce.skins or skin in _account_skins else ""
 
 
+func _active_effect() -> String:
+	var id: String = _data.commerce.effect
+	return id if id in _data.commerce.entitlements or id in _account_offers else ""
+
+
 func sortie() -> Dictionary:
 	var ship_id: String = _data.ship_id
 	var sector_id: String = _data.sector_id
@@ -167,7 +172,7 @@ func sortie() -> Dictionary:
 	return {
 		"ship_id": ship_id, "sector_id": sector_id, "sector_title": sector.title, "duration": sector.duration,
 		"stats": Catalog.build_stats(ship_id, _data.levels.get(ship_id, {}), _available_equipment(ship_id)),
-		"skin_id": _active_skin(ship_id), "effect_id": _data.commerce.effect,
+		"skin_id": _active_skin(ship_id), "effect_id": _active_effect(),
 	}
 
 
@@ -343,7 +348,7 @@ func shop_skin(id: String) -> Dictionary:
 
 
 func shop_effect(id: String) -> Dictionary:
-	return _wallet_transaction(Wallet.set_effect.bind(id))
+	return _wallet_transaction(Wallet.set_effect.bind(id, _account_offers))
 
 
 func claim_season(id: String) -> Dictionary:
@@ -355,7 +360,11 @@ func redeem_test_order(id: String, verified_token: String) -> Dictionary:
 
 
 func redeem_starter_credits(delivery: String) -> Dictionary:
-	return _wallet_transaction(Wallet.redeem_starter_credits.bind(delivery))
+	return _wallet_transaction(Wallet.redeem_local_delivery.bind("starter", delivery))
+
+
+func redeem_hangar_supply(delivery: String) -> Dictionary:
+	return _wallet_transaction(Wallet.redeem_local_delivery.bind("hangar_supply", delivery))
 
 
 func ad_day() -> String:
@@ -612,7 +621,7 @@ func _restore_wallet(profile: Dictionary, source: Dictionary) -> void:
 	wallet.bonus_day = _date(source.get("bonus_day"))
 	wallet.materials_day = _date(source.get("materials_day"))
 	var effect: Variant = source.get("effect")
-	if effect is String and Offers.EFFECTS.has(effect) and effect in wallet.entitlements:
+	if effect is String and Offers.EFFECTS.has(effect):
 		wallet.effect = effect
 	var flight := _dictionary(source.get("flight"))
 	var id: Variant = flight.get("id")

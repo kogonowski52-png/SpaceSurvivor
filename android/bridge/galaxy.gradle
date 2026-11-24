@@ -8,20 +8,24 @@ def unitIds = placements.collectEntries { placement ->
 if (!(admobApp ==~ /ca-app-pub-[0-9]+~[0-9]+/)) {
     throw new GradleException('Invalid GALAXY_ADMOB_APP_ID')
 }
-if (admobApp != sampleApp && !unitIds.values().every { it ==~ /ca-app-pub-[0-9]+\/[0-9]+/ }) {
-    throw new GradleException('Configure all five Rewarded units with a live AdMob App ID')
+if (!unitIds.values().findAll { it }.every { it ==~ /ca-app-pub-[0-9]+\/[0-9]+/ }) {
+    throw new GradleException('Invalid Rewarded unit ID')
 }
 def purchaseServer = System.getenv('GALAXY_PURCHASE_SERVER') ?: ''
 def playMode = System.getenv('GALAXY_PLAY_MODE') ?: 'test'
 def licenseCheckout = System.getenv('GALAXY_ENABLE_LICENSE_CHECKOUT') == '1'
-if (!(playMode in ['test', 'live'])) {
-    throw new GradleException('GALAXY_PLAY_MODE must be test or live')
+def draftCatalog = System.getenv('GALAXY_ENABLE_DRAFT_CATALOG') == '1'
+if (playMode != 'test') {
+    throw new GradleException('Galaxy Strike 1.2.0 Android candidates use test mode')
 }
 if (purchaseServer && !(purchaseServer ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[A-Za-z0-9_\/-]+)?\/?/)) {
     throw new GradleException('GALAXY_PURCHASE_SERVER must be an HTTPS origin or base path')
 }
-if (licenseCheckout && (playMode != 'test' || !purchaseServer)) {
+if (licenseCheckout && !purchaseServer) {
     throw new GradleException('License checkout requires test mode and a verification server')
+}
+if (draftCatalog && !licenseCheckout) {
+    throw new GradleException('Draft SKU require license checkout')
 }
 def privacyPolicy = System.getenv('GALAXY_PRIVACY_POLICY_URL') ?: ''
 if (privacyPolicy && !(privacyPolicy ==~ /https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(\/[A-Za-z0-9._~\/-]+)?/)) {
@@ -50,6 +54,7 @@ android {
             galaxyPurchaseServer: purchaseServer,
             galaxyPlayMode: playMode,
             galaxyLicenseCheckout: licenseCheckout ? 'enabled' : 'disabled',
+            galaxyDraftCatalog: draftCatalog ? 'enabled' : 'disabled',
             galaxyPrivacyPolicy: privacyPolicy,
             galaxyUmpTestDevice: '',
             galaxyUmpGeography: '',
@@ -58,6 +63,9 @@ android {
     buildTypes {
         debug {
             manifestPlaceholders.putAll([
+                galaxyPurchaseServer: '',
+                galaxyLicenseCheckout: 'disabled',
+                galaxyDraftCatalog: 'disabled',
                 galaxyUmpTestDevice: umpTestDevice,
                 galaxyUmpGeography: umpGeography,
             ])
